@@ -5,8 +5,9 @@ See [docs/design.md](docs/design.md) for the reasons behind each item.
 ## Build
 
 - [x] Install GNU awk and rsync on the build machine. Without them the build stops at OpenWrt's prerequisite check.
-- [ ] Run `scripts/build.sh` and get a first `arduino_yun-2026` image. (In progress.)
-- [ ] Run `tools/check-image.py` on it: the kernel header magic `hsqs` at offset 0, the loader uImage at 0xe50000, the 0xdeadc0de marker followed by 0xff, and the size.
+- [x] Build a first (bare) `arduino_yun-2026` image: kernel 6.12.94, 2.7 MB kernel and 3.8 MB rootfs, 8 MB left for settings.
+- [x] `tools/check-image.py` passes on it, and the loader is built to look for `hsqs` at flash 0x50000 only.
+- [ ] Build the full image with the Arduino packages. (In progress.)
 - [ ] Check that the whole image with the Arduino packages (Python 3 included) fits, with room left for settings.
 
 ## First hardware test (needs a serial console for recovery)

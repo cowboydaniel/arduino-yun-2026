@@ -1,6 +1,6 @@
 Modern OpenWrt for the Arduino Yún, with updates and all the old Arduino stuff.
 
-**Status:** the firmware builds and its software is tested off the board, but it hasn't run on a Yún yet. There's nothing to download. See [TODO.md](TODO.md).
+**Status:** a first image builds and passes every offline check, and the software is tested off the board, but nothing has run on a Yún yet. There's nothing to download. See [TODO.md](TODO.md).
 
 ## What's in it
 
