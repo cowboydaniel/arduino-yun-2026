@@ -1,0 +1,9 @@
+# The Arduino packages from feed/ (added by scripts/build.sh unless BARE=1).
+CONFIG_PACKAGE_yun-base=y
+CONFIG_PACKAGE_yun-bridge=y
+CONFIG_PACKAGE_yun-webpanel=y
+# SD cards in the Yun's card reader
+CONFIG_PACKAGE_kmod-fs-vfat=y
+CONFIG_PACKAGE_kmod-fs-ext4=y
+CONFIG_PACKAGE_kmod-nls-cp437=y
+CONFIG_PACKAGE_kmod-nls-iso8859-1=y
