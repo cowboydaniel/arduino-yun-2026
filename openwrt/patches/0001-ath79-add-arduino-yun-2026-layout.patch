@@ -12,10 +12,10 @@ index 95373e5..e14b911 100644
  asus,zenwifi-cd6n|\
 diff --git a/target/linux/ath79/dts/ar9331_arduino_yun-2026.dts b/target/linux/ath79/dts/ar9331_arduino_yun-2026.dts
 new file mode 100644
-index 0000000..f6a81d3
+index 0000000..42f2b04
 --- /dev/null
 +++ b/target/linux/ath79/dts/ar9331_arduino_yun-2026.dts
-@@ -0,0 +1,225 @@
+@@ -0,0 +1,226 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
 +
 +#include "ar9331.dtsi"
@@ -177,6 +177,7 @@ index 0000000..f6a81d3
 +			partition@40000 {
 +				label = "u-boot-env";
 +				reg = <0x40000 0x10000>;
++				read-only;
 +			};
 +
 +			/*
@@ -242,32 +243,60 @@ index 0000000..f6a81d3
 +	nvmem-cell-names = "calibration";
 +};
 diff --git a/target/linux/ath79/generic/base-files/etc/board.d/02_network b/target/linux/ath79/generic/base-files/etc/board.d/02_network
-index 6be9d44..39fab43 100644
+index 6be9d44..d780d00 100644
 --- a/target/linux/ath79/generic/base-files/etc/board.d/02_network
 +++ b/target/linux/ath79/generic/base-files/etc/board.d/02_network
-@@ -19,6 +19,7 @@ ath79_setup_interfaces()
- 	araknis,an-500-ap-i-ac|\
- 	araknis,an-700-ap-i-ac|\
- 	arduino,yun|\
-+	arduino,yun-2026|\
- 	aruba,ap-105|\
- 	aruba,ap-175|\
- 	asus,rp-ac51|\
-@@ -646,7 +647,8 @@ ath79_setup_macs()
- 	engenius,ens202ext-v1)
- 		label_mac=$(mtd_get_mac_binary art 0x1002)
+@@ -134,6 +134,11 @@ ath79_setup_interfaces()
+ 	zyxel,nwa1123-ni)
+ 		ucidef_set_interface_lan "eth0"
  		;;
--	arduino,yun)
-+	arduino,yun|\
 +	arduino,yun-2026)
- 		base_mac=$(mtd_get_mac_binary art 0x1002)
++		# The Ethernet jack is a DHCP client, as on the stock firmware.
++		# The lan network (Wi-Fi only) is set up by the yun-base package.
++		ucidef_set_interface_wan "eth0"
++		;;
+ 	airtight,c-75)
+ 		ucidef_add_switch "switch0" \
+ 			"0u@eth0" "2:wan" "3:lan" "6u@eth1"
+@@ -651,6 +656,11 @@ ath79_setup_macs()
  		lan_mac=$(macaddr_setbit $base_mac 29)
  		[ $lan_mac = $base_mac ] && lan_mac=$(macaddr_unsetbit $base_mac 29)
+ 		;;
++	arduino,yun-2026)
++		base_mac=$(mtd_get_mac_binary art 0x1002)
++		wan_mac=$(macaddr_setbit $base_mac 29)
++		[ $wan_mac = $base_mac ] && wan_mac=$(macaddr_unsetbit $base_mac 29)
++		;;
+ 	avm,fritz1750e|\
+ 	avm,fritz450e|\
+ 	avm,fritzdvbc)
+diff --git a/target/linux/ath79/image/Makefile b/target/linux/ath79/image/Makefile
+index 1918a8a..f722650 100644
+--- a/target/linux/ath79/image/Makefile
++++ b/target/linux/ath79/image/Makefile
+@@ -49,6 +49,17 @@ define Build/append-loader-okli-uimage
+ 	cat "$(KDIR)/loader-$(word 1,$(1)).uImage" >> "$@"
+ endef
+ 
++# Arguments: <size>
++# Like pad-to, but pads with 0xff (erased flash) instead of zeros.
++define Build/pad-to-ff
++	let \
++		size="$$(stat -c%s $@)" \
++		pad="$(call exp_units,$(1)) - size"; \
++	[ $$pad -ge 0 ] || { echo "$@ is larger than $(1)" >&2; exit 1; }; \
++	[ $$pad -eq 0 ] || \
++	dd if=/dev/zero bs=$$pad count=1 2>/dev/null | tr '\000' '\377' >> $@
++endef
++
+ define Build/relocate-kernel
+ 	rm -rf $@.relocate
+ 	$(CP) ../../generic/image/relocate $@.relocate
 diff --git a/target/linux/ath79/image/generic.mk b/target/linux/ath79/image/generic.mk
-index c5eb589..23d812c 100644
+index c5eb589..02b2fd6 100644
 --- a/target/linux/ath79/image/generic.mk
 +++ b/target/linux/ath79/image/generic.mk
-@@ -386,6 +386,35 @@ define Device/arduino_yun
+@@ -386,6 +386,39 @@ define Device/arduino_yun
  endef
  TARGET_DEVICES += arduino_yun
  
@@ -279,8 +308,12 @@ index c5eb589..23d812c 100644
 +# uses the squashfs magic, which is what the stock Linino sysupgrade checks for.
 +#
 +# linino-upgrade.bin is the whole 0x50000-0xfe0000 region, gzip'd, and is
-+# flashed from stock Linino with its own sysupgrade. sysupgrade.bin is used
-+# for later updates and only rewrites the firmware partition.
++# flashed from stock Linino with its own sysupgrade. The gap between the rootfs
++# and the loader is padded with 0xff, so the settings that the stock mtd writes
++# at the 0xdeadc0de marker are followed by erased flash.
++#
++# sysupgrade.bin is used for later updates and only rewrites the firmware
++# partition.
 +define Device/arduino_yun-2026
 +  $(Device/loader-okli-uimage)
 +  SOC := ar9331
@@ -295,7 +328,7 @@ index c5eb589..23d812c 100644
 +  IMAGE_SIZE := 14656k
 +  IMAGES += linino-upgrade.bin
 +  IMAGE/linino-upgrade.bin := append-kernel | pad-to $$$$(BLOCKSIZE) | \
-+	append-rootfs | pad-rootfs | check-size | pad-to 14656k | \
++	append-rootfs | pad-rootfs | check-size | pad-to-ff 14656k | \
 +	append-loader-okli-uimage $(1) | gzip
 +endef
 +TARGET_DEVICES += arduino_yun-2026
