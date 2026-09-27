@@ -32,7 +32,7 @@ OpenWrt 25.12 uses `apk` as its package manager, not `opkg`.
 
 ### Stock Linino layout
 
-This was read from a stock Yún running Linino 1.5.3 (`built=Fri May 13 09:22:20 UTC 2016`, kernel 3.18.23):
+This was read from a stock Yún running OpenWrtYun ChaosCalmer 1.6.2 (`built=Fri May 13 09:22:20 UTC 2016`, kernel 3.18.23):
 
 ```
 mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,14656k(rootfs),1280k(kernel),64k(nvram),64k(art),15936k@0x50000(firmware)

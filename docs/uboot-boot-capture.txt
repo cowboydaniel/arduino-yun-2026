@@ -1,4 +1,4 @@
-# U-Boot power-on output of a stock Linino 1.5.3 Yun, captured on 2026-09-27.
+# U-Boot power-on output of a stock Yun (OpenWrtYun 1.6.2), captured on 2026-09-27.
 # Recorded by tools/uboot-capture on the 32U4 (Serial1, 250000 baud) during two reboots
 # started with `reboot` from Linux, then read back from its EEPROM with avrdude over SPI.
 # The first reboot recorded the first 1008 bytes; the second skipped those and recorded the rest.

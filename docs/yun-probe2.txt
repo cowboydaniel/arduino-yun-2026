@@ -1,4 +1,4 @@
-# Output of the yun-probe2 script on a stock Linino 1.5.3 Yun (2026-09-27).
+# Output of the yun-probe2 script on a stock Yun (OpenWrtYun 1.6.2) (2026-09-27).
 # Passwords, keys, the Wi-Fi SSID, the access point MAC, the time zone and the ULA prefix are redacted.
 
 ===== /proc/mtd

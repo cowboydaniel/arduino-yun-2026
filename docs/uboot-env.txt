@@ -1,4 +1,4 @@
-# U-Boot environment from the u-boot-env partition (mtd1) of a stock Linino 1.5.3 Yun, read from Linux on 2026-09-27.
+# U-Boot environment from the u-boot-env partition (mtd1) of a stock Yun (OpenWrtYun 1.6.2), read from Linux on 2026-09-27.
 # CRC32 is big-endian and covers 0x10000 - 4 bytes, and it matches, so U-Boot uses this saved environment and not its compiled-in defaults.
 # ethaddr, ipaddr and serverip are U-Boot's placeholder TFTP settings, not real network details.
 
