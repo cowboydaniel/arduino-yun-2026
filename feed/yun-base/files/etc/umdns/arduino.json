@@ -1,0 +1,13 @@
+{
+	"arduino": {
+		"service": "_arduino._tcp.local",
+		"port": 80,
+		"txt": [
+			"board=yun",
+			"distro_version=2026",
+			"ssh_upload=yes",
+			"tcp_check=no",
+			"auth_upload=yes"
+		]
+	}
+}

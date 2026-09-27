@@ -7,7 +7,7 @@
 # Options may also come as one quoted word, e.g. '-q -q', as in the stock
 # /etc/config/arduino.
 
-. /usr/share/yun/gpio.sh
+. ${YUN_SHARE:-/usr/share/yun}/gpio.sh
 
 HEX=$1
 if [ -z "$HEX" ] || [ ! -r "$HEX" ]; then
@@ -49,7 +49,7 @@ done
 MCU=$(echo "${MCU:-m32u4}" | tr 'A-Z' 'a-z')
 [ "$MCU" = atmega32u4 ] && MCU=m32u4
 
-AVRDUDE="avrdude -C +/etc/avrdude-yun.conf -c yun -P gpiochip0 -p $MCU"
+AVRDUDE="${AVRDUDE_BIN:-avrdude} -C +/etc/avrdude-yun.conf -c yun -P gpiochip0 -p $MCU"
 
 yun_oe_spi 1 || exit 1
 trap 'yun_oe_spi 0' EXIT INT TERM
