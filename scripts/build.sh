@@ -83,3 +83,19 @@ ls -l bin/targets/ath79/generic/*arduino_yun-2026*
 
 echo
 python3 "$REPO_DIR/tools/check-image.py" bin/targets/ath79/generic/*arduino_yun-2026*linino-upgrade.bin
+
+# The kernel must match OpenWrt's official build (see openwrt/config.seed),
+# or no kmod-* from downloads.openwrt.org installs on the Yun.
+echo
+ours=$(cat build_dir/target-*/linux-ath79_generic/linux-*/.vermagic)
+official=$(curl -fsS -m 60 "https://downloads.openwrt.org/releases/${OPENWRT_VERSION#v}/targets/ath79/generic/packages/index.json" |
+	python3 -c 'import json, sys; print(json.load(sys.stdin)["packages"]["kernel"].split("~")[1].split("-")[0])' 2>/dev/null)
+if [ -z "$official" ]; then
+	echo "Couldn't get the official kernel's version from downloads.openwrt.org; not checked."
+elif [ "$ours" = "$official" ]; then
+	echo "Kernel matches the official build ($ours): official kmods install."
+else
+	echo "The kernel ($ours) doesn't match the official build ($official):" >&2
+	echo "kmods from downloads.openwrt.org won't install. See openwrt/config.seed." >&2
+	[ "${YUN_ALLOW_KERNEL_MISMATCH:-0}" = 1 ] || exit 1
+fi

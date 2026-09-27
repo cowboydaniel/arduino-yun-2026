@@ -17,6 +17,14 @@ CONFIG_TARGET_ath79_generic_DEVICE_arduino_yun-2026=y
 # tests/test_config.py and the vermagic check in scripts/build.sh.
 CONFIG_ALL_KMODS=y
 # CONFIG_KERNEL_KALLSYMS is not set
+# The official build also has these, which change the kernel's config:
+# DEVEL (it allows kmod-usb-test) and three RTC drivers that some other
+# ath79 boards include (they turn on the kernel's RTC support, a few KB).
+# All are built as packages only; none of them goes into the Yun's image.
+CONFIG_DEVEL=y
+CONFIG_PACKAGE_kmod-rtc-ds1307=m
+CONFIG_PACKAGE_kmod-rtc-ds1374=m
+CONFIG_PACKAGE_kmod-rtc-pcf8563=m
 # The "arduino" packages are in the image, not on downloads.openwrt.org:
 # don't list a feed there that doesn't exist (apk update would fail).
 # CONFIG_FEED_arduino is not set

@@ -16,6 +16,11 @@ SEEDS = [os.path.join(HERE, '..', 'openwrt', name) for name in ('config.seed', '
 OFFICIAL = {
     'CONFIG_ALL_KMODS': 'y',
     'CONFIG_KERNEL_KALLSYMS': None,      # "is not set"
+    'CONFIG_DEVEL': 'y',                 # allows kmod-usb-test
+    # RTC drivers other ath79 boards include: they turn on CONFIG_RTC_CLASS.
+    'CONFIG_PACKAGE_kmod-rtc-ds1307': 'm',
+    'CONFIG_PACKAGE_kmod-rtc-ds1374': 'm',
+    'CONFIG_PACKAGE_kmod-rtc-pcf8563': 'm',
 }
 
 
@@ -24,7 +29,7 @@ def settings():
     for path in SEEDS:
         with open(path) as f:
             for line in f:
-                m = re.match(r'^(CONFIG_\w+)=(.*)$', line) or re.match(r'^# (CONFIG_\w+) is not set$', line)
+                m = re.match(r'^(CONFIG_[\w.+-]+)=(.*)$', line) or re.match(r'^# (CONFIG_[\w.+-]+) is not set$', line)
                 if m:
                     out[m.group(1)] = m.group(2) if m.lastindex == 2 else None
     return out
