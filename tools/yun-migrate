@@ -1,0 +1,163 @@
+#!/bin/sh
+# yun-migrate: move an Arduino Yun from the stock Linino firmware to
+# Yun 2026, keeping its settings. Runs on the stock firmware.
+#
+#   scp tools/yun-migrate linino-upgrade.bin root@arduino.local:/tmp/
+#   ssh root@arduino.local sh /tmp/yun-migrate /tmp/linino-upgrade.bin <sha256>
+#
+# Options:
+#   -n   don't keep any settings (the board starts in Wi-Fi setup mode)
+#   -y   don't ask for confirmation
+#   -t   check everything and build the settings archive, but don't flash
+#
+# Settings kept: Wi-Fi network and password, country, hostname, time zone,
+# root password, SSH host key and authorized keys, Ethernet and Wi-Fi
+# address settings, and the REST API setting. Nothing else from the old
+# system is copied over.
+#
+# It never touches U-Boot. If the new firmware doesn't boot, see
+# docs/recovery.md.
+
+set -e
+
+# Only for the tests (tests/test_migrate.py); empty on a real board.
+ROOT=${ROOT:-}
+PROC=${PROC:-/proc}
+
+KEEP=1
+ASK=1
+TEST=0
+while [ $# -gt 0 ]; do
+	case "$1" in
+	-n) KEEP=0 ;;
+	-y) ASK=0 ;;
+	-t) TEST=1 ;;
+	-*) echo "Unknown option $1" >&2; exit 2 ;;
+	*) break ;;
+	esac
+	shift
+done
+
+IMAGE=$1
+SHA256=$2
+SETTINGS=/tmp/yun-settings.tgz
+
+die() {
+	echo "yun-migrate: $*" >&2
+	exit 1
+}
+
+[ -n "$IMAGE" ] || die "usage: yun-migrate [-n] [-y] [-t] <linino-upgrade.bin> [sha256]"
+[ -r "$IMAGE" ] || die "can't read $IMAGE"
+
+# --- Is this a stock Yun? ---------------------------------------------------
+
+grep -q "Arduino Yun" $PROC/cpuinfo || die "this doesn't look like an Arduino Yun"
+
+mtd_size() {
+	grep "\"$1\"" $PROC/mtd | awk '{ print $2 }'
+}
+if [ "$(mtd_size loader)" != "" ]; then
+	die "this Yun already runs Yun 2026: use yun-update instead"
+fi
+[ "$(mtd_size rootfs)" = 00e50000 ] && [ "$(mtd_size kernel)" = 00140000 ] &&
+	[ "$(mtd_size firmware)" = 00f90000 ] ||
+	die "unexpected flash layout (see /proc/mtd); this only works from stock Linino"
+
+# --- Is this the right image? -----------------------------------------------
+
+echo "Checking $IMAGE..."
+[ -z "$SHA256" ] && [ -r "$IMAGE.sha256" ] && SHA256=$(awk '{ print $1 }' "$IMAGE.sha256")
+if [ -n "$SHA256" ]; then
+	[ "$(sha256sum "$IMAGE" | awk '{ print $1 }')" = "$(echo "$SHA256" | tr A-F a-f)" ] ||
+		die "SHA-256 doesn't match: the file is damaged or not the one you meant"
+	echo "  SHA-256 OK"
+else
+	echo "  (no checksum given: pass the SHA-256 from the release page to check the download)"
+fi
+
+hexword() {
+	hexdump -v -e '4/1 "%02x"' | head -c 8
+}
+[ "$(zcat "$IMAGE" | head -c 4 | hexword)" = 68737173 ] ||
+	die "not a Yun 2026 upgrade image (it must start with the squashfs magic)"
+# The loader goes where U-Boot boots from: 0xe50000 into the image
+# (flash 0xea0000). (Not dd: from a pipe it counts short reads as blocks.)
+[ "$(zcat "$IMAGE" | tail -c +$((0xe50000 + 1)) | head -c 4 | hexword)" = 27051956 ] ||
+	die "the image has no loader at flash 0xea0000; don't flash it"
+size=$(zcat "$IMAGE" | wc -c)
+[ "$size" -le $((0xf90000)) ] || die "the image is too big for the firmware partition"
+echo "  image OK ($size bytes)"
+
+free_kb=$(awk '/^MemAvailable|^MemFree/ { print $2; exit }' $PROC/meminfo)
+img_kb=$(($(wc -c < "$IMAGE") / 1024))
+if [ "$free_kb" -lt $((img_kb + 4096)) ]; then
+	echo "  warning: only ${free_kb} KB of RAM free; if the upgrade fails, reboot and run this again straight away"
+fi
+
+# --- Settings -----------------------------------------------------------------
+
+if [ $KEEP = 1 ]; then
+	echo "Saving settings..."
+	work=$(mktemp -d /tmp/yun-migrate.XXXXXX)
+	trap 'rm -rf "$work"' EXIT
+	d=$work/etc/yun-migrate
+	mkdir -p "$d/config" "$work/etc/dropbear"
+	for c in system wireless network arduino dropbear; do
+		[ -f $ROOT/etc/config/$c ] && cp $ROOT/etc/config/$c "$d/config/"
+	done
+	grep '^root:' $ROOT/etc/shadow > "$d/root-shadow" 2>/dev/null || true
+	for f in dropbear_rsa_host_key authorized_keys; do
+		[ -f $ROOT/etc/dropbear/$f ] && cp $ROOT/etc/dropbear/$f "$work/etc/dropbear/"
+	done
+	{
+		echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+		echo "from=$(grep -o "OpenWrt-Yun built on [^.]*\|built=.*" $ROOT/etc/banner $ROOT/etc/arduino/openwrt-yun-release 2>/dev/null | head -n 1)"
+	} > "$d/info"
+	chmod 600 "$d/root-shadow" "$d/config/"* 2>/dev/null || true
+	tar -czf "$SETTINGS" -C "$work" etc
+	echo "  kept: Wi-Fi, hostname, time zone, root password, SSH keys"
+fi
+
+if [ $TEST = 1 ]; then
+	echo
+	echo "Test run: everything checks out. Nothing was flashed."
+	[ $KEEP = 1 ] && echo "The settings archive is $SETTINGS."
+	exit 0
+fi
+
+# --- Flash ------------------------------------------------------------------
+
+cat <<EOF
+
+Ready to install Yun 2026.
+
+ - The Linux side restarts and is unreachable for about three minutes. The
+   sketch keeps running.
+ - Don't unplug the board until it's back.
+EOF
+if grep -q " /overlay .*ext4\| /overlay .*vfat" $PROC/mounts; then
+	cat <<EOF
+ - This board keeps its files on the SD card (extroot). The new firmware
+   uses the internal flash; the SD card's contents stay as they are.
+EOF
+fi
+if [ $KEEP = 0 ]; then
+	echo " - No settings are kept: join the \"Arduino Yun-...\" network to set it up."
+fi
+echo
+
+if [ $ASK = 1 ]; then
+	printf "Install now? [y/N] "
+	read answer
+	case "$answer" in
+	y|Y|yes) ;;
+	*) echo "Nothing changed."; exit 0 ;;
+	esac
+fi
+
+if [ $KEEP = 1 ]; then
+	exec sysupgrade -f "$SETTINGS" "$IMAGE"
+else
+	exec sysupgrade -n "$IMAGE"
+fi

@@ -1,0 +1,133 @@
+#!/bin/sh
+# First boot after yun-migrate: turn the settings it saved from the stock
+# Linino firmware (/etc/yun-migrate, restored from the settings archive)
+# into this firmware's configuration. Runs after 90-yun-network.
+#
+# ROOT is only for the tests (tests/test_migrate.py); on the board it's empty.
+
+D=$ROOT/etc/yun-migrate
+[ -d $D/config ] || exit 0
+
+LOG=$ROOT/etc/yun-migrate.log
+log() {
+	echo "$*" >> $LOG
+	logger -t yun-migrate "$*"
+}
+
+old() {
+	uci -q -c $D/config get "$1"
+}
+
+: > $LOG
+log "Importing settings from the stock firmware ($(grep '^date=' $D/info 2>/dev/null | cut -d= -f2))"
+
+# System
+v=$(old system.@system[0].hostname) && [ -n "$v" ] && {
+	uci set system.@system[0].hostname="$v"
+	log "hostname: $v"
+}
+v=$(old system.@system[0].timezone) && [ -n "$v" ] && uci set system.@system[0].timezone="$v"
+v=$(old system.@system[0].zonename) && [ -n "$v" ] && {
+	uci set system.@system[0].zonename="$v"
+	log "time zone: $v"
+}
+
+# Arduino settings
+for o in secure_rest_api socket_timeout access_point_wifi_name; do
+	v=$(old arduino.@arduino[0].$o) && [ -n "$v" ] && uci set arduino.@arduino[0].$o="$v"
+done
+
+# Wi-Fi country
+v=$(old wireless.radio0.country) && [ -n "$v" ] && {
+	uci set wireless.radio0.country="$v"
+	log "Wi-Fi country: $v"
+}
+
+# Copy an interface's addressing: DHCP, or a static address.
+copy_addressing() {
+	local from=$1 to=$2 proto
+	proto=$(old network.$from.proto)
+	case "$proto" in
+	static)
+		uci set network.$to.proto=static
+		for o in ipaddr netmask gateway; do
+			v=$(old network.$from.$o) && [ -n "$v" ] && uci set network.$to.$o="$v"
+		done
+		uci -q delete network.$to.dns
+		for v in $(old network.$from.dns); do
+			uci add_list network.$to.dns="$v"
+		done
+		log "$to: static $(old network.$from.ipaddr)"
+		;;
+	dhcp|'')
+		uci set network.$to.proto=dhcp
+		;;
+	*)
+		log "$to: keeping DHCP (the stock setting was '$proto')"
+		;;
+	esac
+}
+
+# Ethernet: the stock "wan" (eth1 there, eth0 here).
+copy_addressing wan wan
+
+# Wi-Fi: the stock firmware used one interface, "lan", either as a client
+# (mode sta) or as the setup access point.
+src=wireless
+# When it couldn't join its network at boot, the stock firmware fell back to
+# the setup access point and kept the client settings in /etc/config/arduino
+# to try again later: use those.
+case "$(old arduino.@arduino[0].wifi_reset_step)" in
+timed_out|retry)
+	[ "$(old arduino.@wifi-iface[0].mode)" = sta ] && src=arduino
+	;;
+esac
+
+mode=$(old $src.@wifi-iface[0].mode)
+ssid=$(old $src.@wifi-iface[0].ssid)
+enc=$(old $src.@wifi-iface[0].encryption)
+enc=${enc%%+*}     # "psk2+ccmp" -> "psk2"
+
+if [ "$mode" = sta ] && [ -n "$ssid" ]; then
+	case "$enc" in
+	none|psk|psk2|psk-mixed|sae|sae-mixed)
+		uci set wireless.yun_sta.ssid="$ssid"
+		uci set wireless.yun_sta.encryption="$enc"
+		uci -q delete wireless.yun_sta.key
+		[ "$enc" = none ] || uci set wireless.yun_sta.key="$(old $src.@wifi-iface[0].key)"
+		uci set wireless.yun_sta.disabled=0
+		uci set wireless.yun_ap.disabled=1
+		uci set arduino.@arduino[0].wifi_state=client
+		[ $src = wireless ] && copy_addressing lan wwan
+		log "Wi-Fi: joining \"$ssid\" ($enc)"
+		;;
+	*)
+		log "Wi-Fi: \"$ssid\" uses '$enc', which this firmware doesn't support; starting the setup access point instead"
+		;;
+	esac
+else
+	log "Wi-Fi: the board was in setup mode; starting the setup access point"
+fi
+
+# Root password: keep the old hash (MD5-crypt, which musl still checks).
+if [ -s $D/root-shadow ]; then
+	hash=$(cut -d: -f2 $D/root-shadow)
+	case "$hash" in
+	'$'*)
+		# The hash has no ':' or '|' in it (crypt alphabet only).
+		sed -i "s|^root:[^:]*:|root:$hash:|" $ROOT/etc/shadow
+		log "root password: kept"
+		;;
+	*)
+		log "root password: none was set"
+		;;
+	esac
+fi
+
+[ -s $ROOT/etc/dropbear/dropbear_rsa_host_key ] && log "SSH host key: kept"
+[ -s $ROOT/etc/dropbear/authorized_keys ] && log "SSH authorized keys: kept"
+
+uci commit
+rm -rf $D
+log "Done"
+exit 0
