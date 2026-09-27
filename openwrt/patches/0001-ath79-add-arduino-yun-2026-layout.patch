@@ -336,3 +336,43 @@ index c5eb589..02b2fd6 100644
  define Device/aruba_ap-105
    SOC := ar7161
    DEVICE_VENDOR := Aruba
+diff --git a/target/linux/ath79/image/lzma-loader/src/board.c b/target/linux/ath79/image/lzma-loader/src/board.c
+index ffe33cb..6555319 100644
+--- a/target/linux/ath79/image/lzma-loader/src/board.c
++++ b/target/linux/ath79/image/lzma-loader/src/board.c
+@@ -28,8 +28,35 @@
+ #define UART_READ(r)		READREG(UART_BASE + 4 * (r))
+ #define UART_WRITE(r,v)		WRITEREG(UART_BASE + 4 * (r), (v))
+ 
++/*
++ * The AR9330/AR9331 have their own UART, not a 16550: one data register,
++ * with TX_CSR set when it can take the next character. Waiting for the
++ * 16550's THRE bit there would hang the loader at its first printf.
++ */
++#define RESET_REG_REV_ID	0xb8060090
++#define REV_ID_MAJOR_MASK	0xfff0
++#define REV_ID_MAJOR_AR9330	0x0110
++#define REV_ID_MAJOR_AR9331	0x1110
++
++#define AR933X_UART_DATA	0xb8020000
++#define AR933X_UART_TX_CSR	(1 << 9)
++
++static int is_ar933x(void)
++{
++	unsigned int id = READREG(RESET_REG_REV_ID) & REV_ID_MAJOR_MASK;
++
++	return id == REV_ID_MAJOR_AR9330 || id == REV_ID_MAJOR_AR9331;
++}
++
+ void board_putc(int ch)
+ {
++	if (is_ar933x()) {
++		while ((READREG(AR933X_UART_DATA) & AR933X_UART_TX_CSR) == 0);
++		WRITEREG(AR933X_UART_DATA, AR933X_UART_TX_CSR | (unsigned char)ch);
++		while ((READREG(AR933X_UART_DATA) & AR933X_UART_TX_CSR) == 0);
++		return;
++	}
++
+ 	while (((UART_READ(UART_LSR)) & UART_LSR_THRE) == 0);
+ 	UART_WRITE(UART_TX, ch);
+ 	while (((UART_READ(UART_LSR)) & UART_LSR_THRE) == 0);
