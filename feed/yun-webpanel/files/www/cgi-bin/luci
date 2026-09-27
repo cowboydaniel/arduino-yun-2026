@@ -1,0 +1,5 @@
+#!/bin/sh
+# The stock firmware's web panel lived at /cgi-bin/luci, and browsers that
+# visited it may have cached that "/" redirects here. Send them to the Yun
+# Panel, at a URL they can't have cached, so they don't loop.
+printf 'Status: 302 Found\r\nLocation: /?yun\r\nCache-Control: no-store\r\nContent-Type: text/plain\r\n\r\nThe Yun Panel is at /\n'

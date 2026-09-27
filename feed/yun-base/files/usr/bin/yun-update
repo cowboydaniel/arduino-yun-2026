@@ -7,11 +7,29 @@
 #
 # Packages installed with apk are not kept across a firmware update (as
 # with any OpenWrt sysupgrade); list them first with "apk info".
+#
+# The image (about 12 MB) has to sit in /tmp, which is RAM, and a running
+# Yun has only about 15 MB available. So "apply" first stops the services
+# an update doesn't need, and after the download stops DNS too, leaving
+# sysupgrade enough memory to write the flash. If anything fails before the
+# flash is written, it starts them again. Progress goes to the serial
+# console (YunSerialTerminal), the system log and /tmp/yun-update.log.
 
 REPO=${YUN_UPDATE_REPO:-cowboydaniel/arduino-yun-2026}
 API=https://api.github.com/repos/$REPO/releases/latest
 TMP=/tmp/yun-update
+LOG=${YUN_UPDATE_LOG:-/tmp/yun-update.log}
 ROOT=${ROOT:-}
+PROC=${PROC:-/proc}
+
+# What sysupgrade needs free, besides the image, to switch to its RAM disk
+# and write the flash. A manual update succeeded with 6.5 MB.
+MARGIN_KB=5120
+
+# Services an update doesn't need. DNS (dnsmasq) goes last, after the
+# download.
+SERVICES="uhttpd rpcd umdns cron odhcpd"
+STOPPED=
 
 current() {
 	sed -n "s/^VERSION='\(.*\)'$/\1/p" $ROOT/etc/yun_release 2>/dev/null
@@ -21,18 +39,52 @@ fetch() {
 	uclient-fetch -q -T 30 -O "$2" "$1"
 }
 
+say() {
+	echo "yun-update: $*"
+	echo "yun-update: $*" >> $LOG
+	logger -t yun-update "$*" 2>/dev/null
+	# The serial console, for following an update from the Arduino IDE.
+	[ -n "$CONSOLE" ] && echo "yun-update: $*" > "$CONSOLE" 2>/dev/null
+}
+
+stop_service() {
+	[ -x "$ROOT/etc/init.d/$1" ] || return 0
+	"$ROOT/etc/init.d/$1" stop >/dev/null 2>&1
+	STOPPED="$STOPPED $1"
+}
+
+restart_services() {
+	for s in $STOPPED; do
+		"$ROOT/etc/init.d/$s" start >/dev/null 2>&1
+	done
+	STOPPED=
+}
+
 die() {
 	echo "yun-update: $*" >&2
+	echo "yun-update: $*" >> $LOG
+	logger -t yun-update "$*" 2>/dev/null
+	[ -n "$CONSOLE" ] && echo "yun-update: $*" > "$CONSOLE" 2>/dev/null
+	[ -n "$DOWNLOADED" ] && rm -f "$DOWNLOADED"
+	restart_services
 	exit 1
 }
 
-# Fills LATEST, IMAGE_URL, SUMS_URL from the latest release.
+available_kb() {
+	sync
+	echo 3 > $PROC/sys/vm/drop_caches 2>/dev/null
+	awk '/^MemAvailable:/ { a = $2 } /^MemFree:/ { f = $2 } END { print (a != "" ? a : f) }' $PROC/meminfo
+}
+
+# Fills LATEST, IMAGE_URL, IMAGE_SIZE and SUMS_URL from the latest release.
 latest() {
 	mkdir -p $TMP
 	fetch "$API" $TMP/release.json || die "can't reach GitHub (is the Yun online?)"
 	LATEST=$(jsonfilter -i $TMP/release.json -e '@.tag_name' | sed 's/^v//')
 	IMAGE_URL=$(jsonfilter -i $TMP/release.json -e '@.assets[*].browser_download_url' |
 		grep 'arduino_yun-2026.*sysupgrade\.bin$' | head -n 1)
+	IMAGE_SIZE=$(jsonfilter -i $TMP/release.json \
+		-e "@.assets[@.browser_download_url='$IMAGE_URL'].size" 2>/dev/null)
 	SUMS_URL=$(jsonfilter -i $TMP/release.json -e '@.assets[*].browser_download_url' |
 		grep '/SHA256SUMS$' | head -n 1)
 	[ -n "$LATEST" ] || die "no release found"
@@ -52,23 +104,51 @@ check)
 	fi
 	;;
 apply)
+	CONSOLE=${CONSOLE-/dev/console}
+	: > $LOG
+	# Carry on if the web server that started us is stopped.
+	trap '' HUP
+
 	if [ -n "$2" ]; then
 		IMAGE=$2
+		[ -r "$IMAGE" ] || die "can't read $IMAGE"
+		say "installing $IMAGE"
+		for s in $SERVICES; do stop_service $s; done
 	else
 		latest
 		[ -n "$IMAGE_URL" ] || die "the latest release has no sysupgrade image"
 		[ -n "$SUMS_URL" ] || die "the latest release has no SHA256SUMS, so the download can't be checked"
+		say "updating from Yun $(current) to Yun $LATEST"
+
+		say "stopping services to free memory for the download"
+		for s in $SERVICES; do stop_service $s; done
+		avail=$(available_kb)
+		need=$(( ${IMAGE_SIZE:-12582912} / 1024 + MARGIN_KB ))
+		say "${avail} KB of RAM available, ${need} KB needed"
+		[ "$avail" -ge "$need" ] ||
+			die "not enough free RAM for the update (${avail} KB available, ${need} KB needed). Restart the Yun and try again straight away, before starting a sketch that uses the Bridge."
+
 		IMAGE=$TMP/sysupgrade.bin
-		echo "Downloading Yun $LATEST..."
+		DOWNLOADED=$IMAGE
+		say "downloading Yun $LATEST"
 		fetch "$IMAGE_URL" $IMAGE || die "download failed"
 		fetch "$SUMS_URL" $TMP/SHA256SUMS || die "download failed"
 		want=$(grep "  $(basename "$IMAGE_URL")\$" $TMP/SHA256SUMS | cut -d' ' -f1)
 		[ -n "$want" ] || die "SHA256SUMS doesn't list $(basename "$IMAGE_URL")"
 		[ "$(sha256sum $IMAGE | cut -d' ' -f1)" = "$want" ] || die "the download is damaged (SHA-256 mismatch)"
+		say "download verified"
 	fi
-	sysupgrade -T "$IMAGE" || die "sysupgrade rejected $IMAGE"
-	echo "Installing. The Yun restarts when it's done; the sketch keeps running."
-	exec sysupgrade "$IMAGE"
+
+	sysupgrade -T "$IMAGE" >/dev/null 2>&1 || die "sysupgrade rejected $IMAGE"
+	# DNS isn't needed any more, and sysupgrade needs the memory.
+	stop_service dnsmasq
+	avail=$(available_kb)
+	[ "$avail" -ge "$MARGIN_KB" ] ||
+		die "only ${avail} KB of RAM left for sysupgrade (${MARGIN_KB} KB needed); nothing was written"
+	say "installing (${avail} KB free). The Yun restarts when it's done, in about 3 minutes; the sketch keeps running."
+	# On success sysupgrade takes over and reboots; it only comes back here
+	# if it failed before writing anything.
+	sysupgrade -v "$IMAGE" || die "sysupgrade failed; nothing was written"
 	;;
 *)
 	sed -n '2,/^$/s/^# \{0,1\}//p' "$0" >&2

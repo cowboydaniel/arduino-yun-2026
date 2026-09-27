@@ -18,14 +18,21 @@
 [ "$(uci -q get system.@system[0].hostname)" = OpenWrt ] &&
 	uci set system.@system[0].hostname='Arduino'
 
-uci -q batch <<-EOF2
+# Only create what's missing: after a firmware update that keeps settings,
+# this runs again over the board's existing configuration and must not
+# undo it (it used to turn the Wi-Fi client off and a static wwan address
+# back to DHCP).
+uci -q get network.lan >/dev/null || uci -q batch <<-EOF2
 	set network.lan=interface
 	set network.lan.proto='static'
 	set network.lan.ipaddr='192.168.240.1'
 	set network.lan.netmask='255.255.255.0'
+EOF2
+uci -q get network.wwan >/dev/null || uci -q batch <<-EOF2
 	set network.wwan=interface
 	set network.wwan.proto='dhcp'
-
+EOF2
+uci -q get dhcp.lan >/dev/null || uci -q batch <<-EOF2
 	set dhcp.lan=dhcp
 	set dhcp.lan.interface='lan'
 	set dhcp.lan.start='100'
@@ -58,24 +65,29 @@ uci commit
 uci -q get wireless.radio0 >/dev/null || /sbin/wifi config
 uci -q get wireless.radio0 >/dev/null || exit 1   # try again next boot
 
-uci -q batch <<-EOF2
-	delete wireless.default_radio0
-	set wireless.radio0.disabled='0'
-	set wireless.yun_ap=wifi-iface
-	set wireless.yun_ap.device='radio0'
-	set wireless.yun_ap.mode='ap'
-	set wireless.yun_ap.network='lan'
-	set wireless.yun_ap.encryption='none'
-	set wireless.yun_ap.disabled='0'
-	set wireless.yun_sta=wifi-iface
-	set wireless.yun_sta.device='radio0'
-	set wireless.yun_sta.mode='sta'
-	set wireless.yun_sta.network='wwan'
-	set wireless.yun_sta.encryption='psk2'
-	set wireless.yun_sta.disabled='1'
-EOF2
-
-uci set wireless.yun_ap.ssid="$(yun-wifi ssid)"
+uci -q delete wireless.default_radio0
+if ! uci -q get wireless.yun_ap >/dev/null; then
+	uci -q batch <<-EOF2
+		set wireless.radio0.disabled='0'
+		set wireless.yun_ap=wifi-iface
+		set wireless.yun_ap.device='radio0'
+		set wireless.yun_ap.mode='ap'
+		set wireless.yun_ap.network='lan'
+		set wireless.yun_ap.encryption='none'
+		set wireless.yun_ap.disabled='0'
+	EOF2
+	uci set wireless.yun_ap.ssid="$(yun-wifi ssid)"
+fi
+if ! uci -q get wireless.yun_sta >/dev/null; then
+	uci -q batch <<-EOF2
+		set wireless.yun_sta=wifi-iface
+		set wireless.yun_sta.device='radio0'
+		set wireless.yun_sta.mode='sta'
+		set wireless.yun_sta.network='wwan'
+		set wireless.yun_sta.encryption='psk2'
+		set wireless.yun_sta.disabled='1'
+	EOF2
+fi
 
 uci commit
 exit 0

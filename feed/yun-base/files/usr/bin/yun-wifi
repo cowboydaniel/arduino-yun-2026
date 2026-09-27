@@ -13,6 +13,9 @@
 #       Print the current role: ap, client or fallback.
 #   yun-wifi ssid
 #       Print the name of the setup access point.
+#   yun-wifi sync
+#       Make the two sections match the saved role (run at every boot and
+#       when the radio appears), and reload Wi-Fi if anything changed.
 #
 # Both roles are wifi-iface sections in /etc/config/wireless (yun_ap and
 # yun_sta); switching just enables one and disables the other, so the client
@@ -28,6 +31,10 @@ ap_ssid() {
 		name="Arduino Yun-${mac:-0000}"
 	fi
 	echo "$name"
+}
+
+yun_state() {
+	uci -q get arduino.@arduino[0].wifi_state || echo ap
 }
 
 set_state() {
@@ -102,8 +109,24 @@ retry)
 ssid)
 	ap_ssid
 	;;
+sync)
+	# client: the client on, the access point off. ap and fallback: the
+	# other way round. Anything else (an update that rewrote the sections,
+	# a hand edit) is put back to what the saved role says.
+	uci -q get wireless.yun_sta >/dev/null && uci -q get wireless.yun_ap >/dev/null || exit 0
+	if [ "$(yun_state)" = client ]; then sta=0 ap=1; else sta=1 ap=0; fi
+	[ "$(uci -q get wireless.yun_sta.disabled)" = $sta ] &&
+		[ "$(uci -q get wireless.yun_ap.disabled)" = $ap ] &&
+		[ "$(uci -q get wireless.radio0.disabled)" != 1 ] && exit 0
+	logger -t yun "Wi-Fi didn't match its saved role ($(yun_state)); putting it right"
+	uci set wireless.yun_sta.disabled=$sta
+	uci set wireless.yun_ap.disabled=$ap
+	uci set wireless.radio0.disabled=0
+	uci commit wireless
+	[ "$2" = --no-reload ] || wifi reload
+	;;
 status)
-	uci -q get arduino.@arduino[0].wifi_state || echo ap
+	yun_state
 	;;
 *)
 	sed -n '2,/^$/s/^# \{0,1\}//p' "$0" >&2

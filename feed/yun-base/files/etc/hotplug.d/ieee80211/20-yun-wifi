@@ -1,0 +1,26 @@
+#!/bin/sh
+# The Wi-Fi radio can appear after the first-boot scripts ran: 90-yun-network
+# then leaves its Wi-Fi part (and 95-yun-migrate its Wi-Fi import) for the
+# next boot. Finish them as soon as the radio is here, after
+# 10-wifi-detect has written its config, instead of leaving the board
+# without Wi-Fi until someone reboots it.
+
+[ "$ACTION" = add ] || exit 0
+DEFAULTS=${YUN_UCI_DEFAULTS:-/etc/uci-defaults}   # only the tests change it
+
+lock /var/lock/yun-wifi
+changed=
+for s in 90-yun-network 95-yun-migrate; do
+	f=$DEFAULTS/$s
+	[ -f "$f" ] || continue
+	if ( . "$f" ); then
+		rm -f "$f"
+		changed=1
+		logger -t yun "finished $s now that the Wi-Fi radio is here"
+	fi
+done
+yun-wifi sync --no-reload
+lock -u /var/lock/yun-wifi
+
+[ -n "$changed" ] && wifi reload
+exit 0
