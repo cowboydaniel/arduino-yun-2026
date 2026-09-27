@@ -6,11 +6,11 @@
 # mailbox / datastore JSON interface (port 5700).
 
 import json
-import logging
+import bridgelog
 import select
 import socket
 
-log = logging.getLogger('bridge')
+log = bridgelog.getLogger()
 
 # Clients that don't read what we send them are dropped past this.
 MAX_SENDBUF = 8192
