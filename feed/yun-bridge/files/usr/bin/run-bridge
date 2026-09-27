@@ -1,0 +1,8 @@
+#!/bin/sh
+# Started by Bridge.begin() on the ATmega32U4, which types "run-bridge" into
+# the login shell on ttyATH0. The serial port is our stdin and stdout.
+
+DEBUG=
+[ "$(uci -q get arduino.@arduino[0].bridge_debug)" = 1 ] && DEBUG=--debug
+
+exec python3 -u /usr/lib/yun-bridge/bridge.py $DEBUG 2> /tmp/bridge.py-stderr.log

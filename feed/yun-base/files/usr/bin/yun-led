@@ -1,0 +1,31 @@
+#!/bin/sh
+# yun-led <wlan|usb> <on|off|blink [ms]|default>
+
+name=$1
+action=$2
+
+led=
+for l in /sys/class/leds/*:"$name"; do
+	[ -d "$l" ] && led=$l && break
+done
+if [ -z "$led" ]; then
+	echo "yun-led: no $name LED" >&2
+	exit 1
+fi
+
+case "$action" in
+on)	echo none > "$led/trigger"; cat "$led/max_brightness" > "$led/brightness" ;;
+off)	echo none > "$led/trigger"; echo 0 > "$led/brightness" ;;
+blink)
+	echo timer > "$led/trigger"
+	echo "${3:-100}" > "$led/delay_on"
+	echo "${3:-100}" > "$led/delay_off"
+	;;
+default)
+	case "$name" in
+	wlan) echo phy0tpt > "$led/trigger" ;;
+	usb) echo usbport > "$led/trigger" ;;
+	esac
+	;;
+*)	echo "usage: yun-led <wlan|usb> <on|off|blink [ms]|default>" >&2; exit 1 ;;
+esac

@@ -1,0 +1,114 @@
+#!/bin/sh
+# Switch the Yun's Wi-Fi between its two roles:
+#
+#   yun-wifi ap
+#       Setup access point: an open network called "Arduino Yun-<MAC>"
+#       (or arduino.@arduino[0].access_point_wifi_name), with the Yun at
+#       192.168.240.1 handing out addresses.
+#   yun-wifi client <ssid> <encryption> [<key>]
+#       Join an existing network (encryption: none, psk2, psk-mixed, sae,
+#       sae-mixed, ...). Falls back to the setup access point at boot if it
+#       can't connect; see /etc/init.d/yun-wifi.
+#   yun-wifi status
+#       Print the current role: ap, client or fallback.
+#   yun-wifi ssid
+#       Print the name of the setup access point.
+#
+# Both roles are wifi-iface sections in /etc/config/wireless (yun_ap and
+# yun_sta); switching just enables one and disables the other, so the client
+# settings survive a Wi-Fi reset.
+
+. /lib/functions.sh
+
+AP_ADDR=192.168.240.1
+
+ap_ssid() {
+	local name mac
+	name=$(uci -q get arduino.@arduino[0].access_point_wifi_name)
+	if [ -z "$name" ] || [ "$name" = Arduino ]; then
+		mac=$(cat /sys/class/ieee80211/phy0/macaddress 2>/dev/null | tr -d : | tr a-f A-F)
+		name="Arduino Yun-${mac:-0000}"
+	fi
+	echo "$name"
+}
+
+set_state() {
+	uci -q set arduino.@arduino[0].wifi_state="$1"
+}
+
+apply() {
+	uci commit wireless
+	uci commit network
+	uci commit dhcp
+	uci commit arduino
+	wifi reload
+	/etc/init.d/network reload
+	/etc/init.d/dnsmasq reload 2>/dev/null
+	/etc/init.d/umdns reload 2>/dev/null
+	return 0
+}
+
+use_ap() {
+	uci set wireless.yun_ap.disabled=0
+	uci set wireless.yun_ap.ssid="$(ap_ssid)"
+	uci set wireless.yun_sta.disabled=1
+	uci set network.lan.ipaddr="$AP_ADDR"
+	uci set dhcp.lan.ignore=0
+}
+
+case "$1" in
+ap)
+	use_ap
+	set_state ap
+	yun-led wlan blink 500 2>/dev/null
+	apply
+	;;
+fallback)
+	# Used by /etc/init.d/yun-wifi: the client settings didn't work, so run
+	# the setup access point until the next boot, which tries them again.
+	use_ap
+	set_state fallback
+	apply
+	;;
+client)
+	ssid=$2
+	enc=${3:-psk2}
+	key=$4
+	if [ -z "$ssid" ]; then
+		echo "usage: yun-wifi client <ssid> <encryption> [<key>]" >&2
+		exit 1
+	fi
+	if [ "$enc" != none ] && [ -z "$key" ]; then
+		echo "yun-wifi: encryption $enc needs a key" >&2
+		exit 1
+	fi
+	uci set wireless.yun_sta.disabled=0
+	uci set wireless.yun_sta.ssid="$ssid"
+	uci set wireless.yun_sta.encryption="$enc"
+	uci -q delete wireless.yun_sta.key
+	[ "$enc" != none ] && uci set wireless.yun_sta.key="$key"
+	uci set wireless.yun_ap.disabled=1
+	set_state client
+	yun-led wlan default 2>/dev/null
+	apply
+	;;
+retry)
+	# At boot after a fallback: try the client settings again.
+	[ "$(uci -q get arduino.@arduino[0].wifi_state)" = fallback ] || exit 0
+	uci set wireless.yun_sta.disabled=0
+	uci set wireless.yun_ap.disabled=1
+	set_state client
+	uci commit wireless
+	uci commit arduino
+	;;
+ssid)
+	ap_ssid
+	;;
+status)
+	uci -q get arduino.@arduino[0].wifi_state || echo ap
+	;;
+*)
+	sed -n '2,/^$/s/^# \{0,1\}//p' "$0" >&2
+	exit 1
+	;;
+esac

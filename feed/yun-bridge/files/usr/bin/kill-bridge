@@ -1,0 +1,8 @@
+#!/bin/sh
+# Stop the bridge and the login shell on ttyATH0, so the serial port is free
+# (the Arduino IDE runs this before uploading a sketch over the network).
+
+pkill -9 -f "python3 -u /usr/lib/yun-bridge/bridge.py"
+[ -x /usr/bin/bridge-stopped ] && /usr/bin/bridge-stopped
+pkill -9 -f "/bin/ash --login"
+exit 0

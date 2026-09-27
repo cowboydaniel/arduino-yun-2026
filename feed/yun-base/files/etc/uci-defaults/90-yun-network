@@ -1,0 +1,64 @@
+#!/bin/sh
+# First boot: set up the network the way a Yun works.
+#
+#   wan   the Ethernet jack, DHCP client (set up by board.d)
+#   lan   the setup access point, 192.168.240.1, hands out addresses
+#   wwan  Wi-Fi client, DHCP (disabled until Wi-Fi is configured)
+#
+# The Yun is a device on someone else's network, not a router, so the
+# firewall accepts connections from both the Ethernet and Wi-Fi sides
+# (SSH, the web panel and the REST API), like the stock firmware did.
+
+# The radio driver can load after "wifi config" ran at boot.
+uci -q get wireless.radio0 >/dev/null || /sbin/wifi config
+uci -q get wireless.radio0 >/dev/null || exit 1   # try again next boot
+
+uci -q batch <<-EOF2
+	set system.@system[0].hostname='Arduino'
+
+	set network.lan=interface
+	set network.lan.proto='static'
+	set network.lan.ipaddr='192.168.240.1'
+	set network.lan.netmask='255.255.255.0'
+	set network.wwan=interface
+	set network.wwan.proto='dhcp'
+
+	set dhcp.lan=dhcp
+	set dhcp.lan.interface='lan'
+	set dhcp.lan.start='100'
+	set dhcp.lan.limit='150'
+	set dhcp.lan.leasetime='1h'
+
+	delete wireless.default_radio0
+	set wireless.radio0.disabled='0'
+	set wireless.yun_ap=wifi-iface
+	set wireless.yun_ap.device='radio0'
+	set wireless.yun_ap.mode='ap'
+	set wireless.yun_ap.network='lan'
+	set wireless.yun_ap.encryption='none'
+	set wireless.yun_ap.disabled='0'
+	set wireless.yun_sta=wifi-iface
+	set wireless.yun_sta.device='radio0'
+	set wireless.yun_sta.mode='sta'
+	set wireless.yun_sta.network='wwan'
+	set wireless.yun_sta.encryption='psk2'
+	set wireless.yun_sta.disabled='1'
+EOF2
+
+# Firewall: add wwan to the wan zone and accept incoming connections there.
+wan_zone=
+i=0
+while name=$(uci -q get firewall.@zone[$i].name); do
+	[ "$name" = wan ] && wan_zone=firewall.@zone[$i]
+	i=$((i + 1))
+done
+if [ -n "$wan_zone" ]; then
+	uci -q del_list $wan_zone.network='wwan'
+	uci add_list $wan_zone.network='wwan'
+	uci set $wan_zone.input='ACCEPT'
+fi
+
+uci set wireless.yun_ap.ssid="$(yun-wifi ssid)"
+
+uci commit
+exit 0
