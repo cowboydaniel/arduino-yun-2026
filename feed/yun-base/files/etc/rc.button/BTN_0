@@ -1,0 +1,34 @@
+#!/bin/sh
+# The WLAN RST button next to the USB-A port.
+#
+#   held 5 s or more:  switch Wi-Fi back to the setup access point
+#   held 30 s or more: factory reset (wipes all settings), then reboot
+#
+# The WLAN LED blinks while the button is held, and blinks faster once
+# releasing it will do something.
+
+. /lib/functions.sh
+
+case "$ACTION" in
+pressed)
+	yun-led wlan blink 250
+	return 5
+	;;
+timeout)
+	yun-led wlan blink 60
+	;;
+released)
+	if [ "$SEEN" -ge 30 ]; then
+		logger -t yun "WLAN RST held ${SEEN}s: factory reset"
+		echo "FACTORY RESET" > /dev/console
+		factoryreset -y && reboot &
+	elif [ "$SEEN" -ge 5 ]; then
+		logger -t yun "WLAN RST held ${SEEN}s: Wi-Fi reset"
+		yun-wifi ap
+	else
+		yun-led wlan default
+	fi
+	;;
+esac
+
+return 0

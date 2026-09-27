@@ -1,0 +1,76 @@
+#!/bin/sh
+# Flash a sketch into the ATmega32U4 over ISP. The Arduino IDE runs this over
+# SSH for a network upload:
+#
+#   run-avrdude /tmp/sketch.hex [-q -q | -v] [-p<mcu>] [-l<lfuse>] [-h<hfuse>] [-e<efuse>]
+#
+# Options may also come as one quoted word, e.g. '-q -q', as in the stock
+# /etc/config/arduino.
+
+. /usr/share/yun/gpio.sh
+
+HEX=$1
+if [ -z "$HEX" ] || [ ! -r "$HEX" ]; then
+	echo "usage: run-avrdude <sketch.hex> [options]" >&2
+	exit 1
+fi
+shift
+
+VERBOSE=
+MCU=
+LFUSE=
+HFUSE=
+EFUSE=
+
+# Split every argument into words, then read -x<value> or -x <value>.
+set -- $*
+while [ $# -gt 0 ]; do
+	case "$1" in
+	-q) VERBOSE="$VERBOSE -q" ;;
+	-v) VERBOSE="$VERBOSE -v" ;;
+	-p|-l|-h|-e)
+		if [ $# -lt 2 ]; then
+			echo "run-avrdude: $1 needs a value" >&2
+			exit 1
+		fi
+		opt=$1; val=$2; shift 2
+		set -- "$opt$val" "$@"
+		continue
+		;;
+	-p*) MCU=${1#-p} ;;
+	-l*) LFUSE=${1#-l} ;;
+	-h*) HFUSE=${1#-h} ;;
+	-e*) EFUSE=${1#-e} ;;
+	*) echo "run-avrdude: ignoring unknown option $1" >&2 ;;
+	esac
+	shift
+done
+
+MCU=$(echo "${MCU:-m32u4}" | tr 'A-Z' 'a-z')
+[ "$MCU" = atmega32u4 ] && MCU=m32u4
+
+AVRDUDE="avrdude -C +/etc/avrdude-yun.conf -c yun -P gpiochip0 -p $MCU"
+
+yun_oe_spi 1 || exit 1
+trap 'yun_oe_spi 0' EXIT INT TERM
+
+FUSES=
+if [ "$MCU" = m32u4 ]; then
+	# Same fuses as the Yun entry in the Arduino AVR core's boards.txt.
+	LFUSE=${LFUSE:-0xff}
+	HFUSE=${HFUSE:-0xd8}
+	if [ -z "$EFUSE" ]; then
+		# Only the low nibble of the extended fuse exists. Leave it alone
+		# when it's already right, so the unused bits never fail a verify.
+		cur=$($AVRDUDE -q -q -U efuse:r:-:d 2>/dev/null)
+		case "$cur" in
+		''|*[!0-9]*) EFUSE=0xcb ;;
+		*) [ $((cur & 0x0f)) -ne $((0x0b)) ] && EFUSE=0xcb ;;
+		esac
+	fi
+fi
+[ -n "$LFUSE" ] && FUSES="$FUSES -U lfuse:w:$LFUSE:m"
+[ -n "$HFUSE" ] && FUSES="$FUSES -U hfuse:w:$HFUSE:m"
+[ -n "$EFUSE" ] && FUSES="$FUSES -U efuse:w:$EFUSE:m"
+
+$AVRDUDE $FUSES -U "flash:w:$HEX:i" $VERBOSE

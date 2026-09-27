@@ -1,0 +1,6 @@
+#!/bin/sh
+# Reset the ATmega32U4, which restarts the sketch.
+
+. /usr/share/yun/gpio.sh
+
+yun_gpio_pulse $GPIO_MCU_RESET

@@ -1,0 +1,14 @@
+config arduino
+	# Require the root password for the /arduino, /data and /mailbox REST calls
+	option secure_rest_api 'true'
+	# Seconds the REST calls wait for the sketch
+	option socket_timeout '5'
+	# Name of the setup access point; "Arduino" means "Arduino Yun-<MAC>"
+	option access_point_wifi_name 'Arduino'
+	# ap, client or fallback (managed by yun-wifi)
+	option wifi_state 'ap'
+	# Seconds to wait for the Wi-Fi network at boot before falling back to
+	# the setup access point (0 = never fall back)
+	option wifi_fallback_timeout '60'
+	# Log every bridge command to /tmp/bridge.py-stderr.log
+	option bridge_debug '0'
