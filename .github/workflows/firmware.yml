@@ -43,6 +43,8 @@ jobs:
           mkdir -p out
           cp "$RUNNER_TEMP"/yun-build/openwrt/bin/targets/ath79/generic/*arduino_yun-2026* out/
           cd out && sha256sum * > SHA256SUMS && cat SHA256SUMS
+          # The stock firmware's busybox has md5sum but no sha256sum.
+          md5sum *.bin > MD5SUMS && cat MD5SUMS
 
       - uses: actions/upload-artifact@v4
         with:

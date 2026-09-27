@@ -3,7 +3,11 @@
 # Yun 2026, keeping its settings. Runs on the stock firmware.
 #
 #   scp tools/yun-migrate linino-upgrade.bin root@arduino.local:/tmp/
-#   ssh root@arduino.local sh /tmp/yun-migrate /tmp/linino-upgrade.bin <sha256>
+#   ssh root@arduino.local sh /tmp/yun-migrate /tmp/linino-upgrade.bin <checksum>
+#
+# <checksum> is the image's MD5 (from the release's MD5SUMS) or SHA-256
+# (SHA256SUMS). The stock firmware's busybox only has md5sum, so use the MD5
+# there; a SHA-256 is checked only where sha256sum exists.
 #
 # Options:
 #   -n   don't keep any settings (the board starts in Wi-Fi setup mode)
@@ -39,7 +43,7 @@ while [ $# -gt 0 ]; do
 done
 
 IMAGE=$1
-SHA256=$2
+SUM=$2
 SETTINGS=/tmp/yun-settings.tgz
 
 die() {
@@ -47,7 +51,7 @@ die() {
 	exit 1
 }
 
-[ -n "$IMAGE" ] || die "usage: yun-migrate [-n] [-y] [-t] <linino-upgrade.bin> [sha256]"
+[ -n "$IMAGE" ] || die "usage: yun-migrate [-n] [-y] [-t] <linino-upgrade.bin> [md5 or sha256]"
 [ -r "$IMAGE" ] || die "can't read $IMAGE"
 
 # --- Is this a stock Yun? ---------------------------------------------------
@@ -67,14 +71,30 @@ fi
 # --- Is this the right image? -----------------------------------------------
 
 echo "Checking $IMAGE..."
-[ -z "$SHA256" ] && [ -r "$IMAGE.sha256" ] && SHA256=$(awk '{ print $1 }' "$IMAGE.sha256")
-if [ -n "$SHA256" ]; then
-	[ "$(sha256sum "$IMAGE" | awk '{ print $1 }')" = "$(echo "$SHA256" | tr A-F a-f)" ] ||
-		die "SHA-256 doesn't match: the file is damaged or not the one you meant"
-	echo "  SHA-256 OK"
-else
-	echo "  (no checksum given: pass the SHA-256 from the release page to check the download)"
-fi
+for ext in md5 sha256; do
+	[ -z "$SUM" ] && [ -r "$IMAGE.$ext" ] && SUM=$(awk '{ print $1 }' "$IMAGE.$ext")
+done
+SUM=$(echo "$SUM" | tr A-F a-f)
+case "$SUM" in
+'')
+	echo "  (no checksum given: pass the MD5 from the release's MD5SUMS to check the download)"
+	;;
+*[!0-9a-f]*)
+	die "that checksum isn't hexadecimal: pass the MD5 (32 characters) or SHA-256 (64)"
+	;;
+*)
+	case ${#SUM} in
+	32) tool=md5sum; name=MD5 ;;
+	64) tool=sha256sum; name=SHA-256 ;;
+	*) die "that checksum is ${#SUM} characters: pass the MD5 (32) or SHA-256 (64)" ;;
+	esac
+	command -v $tool >/dev/null 2>&1 ||
+		die "this firmware has no $tool: pass the MD5 from the release's MD5SUMS instead"
+	[ "$($tool "$IMAGE" | awk '{ print $1 }')" = "$SUM" ] ||
+		die "$name doesn't match: the file is damaged or not the one you meant"
+	echo "  $name OK"
+	;;
+esac
 
 hexword() {
 	hexdump -v -e '4/1 "%02x"' | head -c 8
@@ -89,7 +109,10 @@ size=$(zcat "$IMAGE" | wc -c)
 [ "$size" -le $((0xf90000)) ] || die "the image is too big for the firmware partition"
 echo "  image OK ($size bytes)"
 
-free_kb=$(awk '/^MemAvailable|^MemFree/ { print $2; exit }' $PROC/meminfo)
+# MemAvailable counts the page cache the kernel can reclaim; MemFree
+# (listed first, and far lower on a running Yun) doesn't. Old kernels
+# without MemAvailable fall back to MemFree.
+free_kb=$(awk '/^MemAvailable:/ { a = $2 } /^MemFree:/ { f = $2 } END { print (a != "" ? a : f) }' $PROC/meminfo)
 img_kb=$(($(wc -c < "$IMAGE") / 1024))
 if [ "$free_kb" -lt $((img_kb + 4096)) ]; then
 	echo "  warning: only ${free_kb} KB of RAM free; if the upgrade fails, reboot and run this again straight away"

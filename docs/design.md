@@ -134,7 +134,7 @@ U-Boot is never written, so a failed update can always be recovered: stop in U-B
 From stock Linino, once ([`tools/yun-migrate`](../tools/yun-migrate)):
 
 1. Copy `yun-migrate` and `linino-upgrade.bin` to `/tmp` on the Yún (scp, from a PC).
-2. `sh /tmp/yun-migrate /tmp/linino-upgrade.bin <sha256>` checks the board, its flash layout and the image, saves the settings worth keeping into a small archive, and runs `sysupgrade -f <archive> <image>`. `-t` does everything except flash.
+2. `sh /tmp/yun-migrate /tmp/linino-upgrade.bin <md5>` (the stock busybox has `md5sum` but no `sha256sum`) checks the board, its flash layout and the image, saves the settings worth keeping into a small archive, and runs `sysupgrade -f <archive> <image>`. `-t` does everything except flash.
 3. On first boot, preinit unpacks the archive and `95-yun-migrate` turns it into the new configuration: hostname, time zone, Wi-Fi network and country, static addresses, the root password hash, the RSA host key and authorized keys, and the REST API setting.
 
 On the new firmware, `yun-update` (also behind the panel's firmware card) downloads the latest release's `sysupgrade.bin` from GitHub, checks it against the release's `SHA256SUMS` and installs it, keeping settings.
