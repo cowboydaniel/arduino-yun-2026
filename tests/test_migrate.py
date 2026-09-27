@@ -181,6 +181,29 @@ class MigrateTest(unittest.TestCase):
                            capture_output=True, text=True)
         return p.stdout.strip() if p.returncode == 0 else None
 
+    def test_waits_for_the_wifi_sections(self):
+        # 90-yun-network is still waiting for the radio, so yun_sta doesn't
+        # exist yet: import the rest now, and the Wi-Fi on a later boot.
+        write(os.path.join(self.new, 'etc', 'config', 'wireless'), "config wifi-device 'radio0'\n\toption type 'mac80211'\n")
+        p = self.migrate('-t', self.image)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        with tarfile.open(self.settings) as tar:
+            tar.extractall(self.new, filter='data')
+        p = subprocess.run(['sh', IMPORT], capture_output=True, text=True, env=self.env(self.new))
+        self.assertEqual(p.returncode, 1, p.stderr)
+        self.assertEqual(self.uci('system.@system[0].hostname'), 'workbench')
+        with open(os.path.join(self.new, 'etc', 'shadow')) as f:
+            self.assertTrue(f.read().startswith('root:$1$Zq9e.abc$'))
+        self.assertTrue(os.path.isdir(os.path.join(self.new, 'etc', 'yun-migrate')))
+
+        # Next boot: the Wi-Fi sections exist now.
+        write(os.path.join(self.new, 'etc', 'config', 'wireless'), NEW['wireless'])
+        p = subprocess.run(['sh', IMPORT], capture_output=True, text=True, env=self.env(self.new))
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(self.uci('wireless.yun_sta.ssid'), 'Dan\'s "Workshop" $net')
+        self.assertEqual(self.uci('wireless.yun_sta.disabled'), '0')
+        self.assertFalse(os.path.exists(os.path.join(self.new, 'etc', 'yun-migrate')))
+
     def test_end_to_end(self):
         p = self.migrate('-t', self.image)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)

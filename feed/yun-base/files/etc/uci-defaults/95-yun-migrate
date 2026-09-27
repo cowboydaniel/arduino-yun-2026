@@ -71,6 +71,33 @@ copy_addressing() {
 # Ethernet: the stock "wan" (eth1 there, eth0 here).
 copy_addressing wan wan
 
+# Root password: keep the old hash (MD5-crypt, which musl still checks).
+if [ -s $D/root-shadow ]; then
+	hash=$(cut -d: -f2 $D/root-shadow)
+	case "$hash" in
+	'$'*)
+		# The hash has no ':' or '|' in it (crypt alphabet only).
+		sed -i "s|^root:[^:]*:|root:$hash:|" $ROOT/etc/shadow
+		log "root password: kept"
+		;;
+	*)
+		log "root password: none was set"
+		;;
+	esac
+fi
+
+[ -s $ROOT/etc/dropbear/dropbear_rsa_host_key ] && log "SSH host key: kept"
+[ -s $ROOT/etc/dropbear/authorized_keys ] && log "SSH authorized keys: kept"
+
+# The Wi-Fi settings go into the sections 90-yun-network creates once the
+# radio is up. If it's still waiting for the radio, keep what's imported so
+# far and do the Wi-Fi on a later boot (uci-defaults runs this again).
+if ! uci -q get wireless.yun_sta >/dev/null; then
+	log "Wi-Fi: the radio isn't set up yet; importing the Wi-Fi settings on the next boot"
+	uci commit
+	exit 1
+fi
+
 # Wi-Fi: the stock firmware used one interface, "lan", either as a client
 # (mode sta) or as the setup access point.
 src=wireless
@@ -108,24 +135,6 @@ if [ "$mode" = sta ] && [ -n "$ssid" ]; then
 else
 	log "Wi-Fi: the board was in setup mode; starting the setup access point"
 fi
-
-# Root password: keep the old hash (MD5-crypt, which musl still checks).
-if [ -s $D/root-shadow ]; then
-	hash=$(cut -d: -f2 $D/root-shadow)
-	case "$hash" in
-	'$'*)
-		# The hash has no ':' or '|' in it (crypt alphabet only).
-		sed -i "s|^root:[^:]*:|root:$hash:|" $ROOT/etc/shadow
-		log "root password: kept"
-		;;
-	*)
-		log "root password: none was set"
-		;;
-	esac
-fi
-
-[ -s $ROOT/etc/dropbear/dropbear_rsa_host_key ] && log "SSH host key: kept"
-[ -s $ROOT/etc/dropbear/authorized_keys ] && log "SSH authorized keys: kept"
 
 uci commit
 rm -rf $D

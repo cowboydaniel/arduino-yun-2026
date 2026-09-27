@@ -129,6 +129,34 @@ class NetworkSetupTest(unittest.TestCase):
         self.assertEqual(self.uci('firewall.@zone[1].network'), 'wan wan6 wwan')
         self.assertEqual(self.uci('umdns.@umdns[0].network'), 'lan wan wwan')
 
+    def test_radio_not_ready_still_opens_ethernet(self):
+        # "wifi config" found no radio: Ethernet must still be reachable, and
+        # the script must ask to run again next boot.
+        with open(os.path.join(self.conf, 'wireless'), 'w') as f:
+            f.write('')
+        script = os.path.join(BASE, 'etc', 'uci-defaults', '90-yun-network')
+        p = subprocess.run(['sh', script], capture_output=True, text=True, env=self.env)
+        self.assertEqual(p.returncode, 1)
+        self.assertEqual(self.uci('firewall.@zone[1].input'), 'ACCEPT')
+        self.assertEqual(self.uci('firewall.@zone[1].network'), 'wan wan6 wwan')
+        self.assertEqual(self.uci('network.wan.proto'), 'dhcp')
+        self.assertEqual(self.uci('network.wwan.proto'), 'dhcp')
+        self.assertEqual(self.uci('system.@system[0].hostname'), 'Arduino')
+        self.assertIsNone(self.uci('wireless.yun_sta'))
+
+        # In between, the stock settings import names the board.
+        subprocess.run([UCI, '-c', self.conf, 'set', 'system.@system[0].hostname=workbench'], check=True)
+        subprocess.run([UCI, '-c', self.conf, 'commit', 'system'], check=True)
+
+        # Next boot the radio is there: the Wi-Fi part runs, and the name stays.
+        with open(os.path.join(self.conf, 'wireless'), 'w') as f:
+            f.write(WIRELESS)
+        self.first_boot()
+        self.assertEqual(self.uci('wireless.yun_sta.network'), 'wwan')
+        self.assertEqual(self.uci('wireless.yun_ap.disabled'), '0')
+        self.assertEqual(self.uci('system.@system[0].hostname'), 'workbench')
+        self.assertEqual(self.uci('firewall.@zone[1].network'), 'wan wan6 wwan')
+
     def test_wifi_client_and_back(self):
         self.first_boot()
         yun_wifi = os.path.join(BASE, 'usr', 'bin', 'yun-wifi')
