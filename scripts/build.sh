@@ -42,9 +42,22 @@ if [ $applied = 0 ]; then
 	done
 fi
 
-cp feeds.conf.default feeds.conf
+# Only the packages feed is needed (Python 3, avrdude, libgpiod, curl), at
+# the commit this OpenWrt release pins, from GitHub's mirror: the other
+# feeds and git.openwrt.org have failed to download on GitHub's runners and
+# stopped the whole build.
+sed -n 's,^src-git packages https://git.openwrt.org/feed/packages.git,src-git packages https://github.com/openwrt/packages.git,p' \
+	feeds.conf.default > feeds.conf
+grep -q '^src-git packages ' feeds.conf || { echo "no packages feed in feeds.conf.default" >&2; exit 1; }
 echo "src-link arduino $REPO_DIR/feed" >> feeds.conf
-./scripts/feeds update -a
+for try in 1 2 3; do
+	./scripts/feeds update -a && break
+	[ $try = 3 ] && exit 1
+	echo "feeds update failed, trying again in 30 s" >&2
+	sleep 30
+done
+# Drop packages left over from feeds this script no longer uses.
+./scripts/feeds uninstall -a >/dev/null
 
 # Patches for packages from OpenWrt's feeds, laid out like feeds/:
 # openwrt/feed-patches/<feed>/<path to package>/*.patch
