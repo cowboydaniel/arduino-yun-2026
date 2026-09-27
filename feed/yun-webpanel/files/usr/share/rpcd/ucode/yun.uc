@@ -209,7 +209,8 @@ function meminfo() {
 		let kv = match(line, /^(\w+):\s+(\d+) kB/);
 		if (kv) m[kv[1]] = +kv[2] * 1024;
 	}
-	return { total: m.MemTotal, free: m.MemFree, available: m.MemAvailable ?? m.MemFree };
+	return { total: m.MemTotal, free: m.MemFree, available: m.MemAvailable ?? m.MemFree,
+		swap_total: m.SwapTotal ?? 0, swap_free: m.SwapFree ?? 0 };
 }
 
 function storage() {

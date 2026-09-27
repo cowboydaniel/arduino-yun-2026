@@ -219,6 +219,8 @@
       if (memHistory.length > 60) memHistory.shift();
       drawSpark($('#mem-spark'), memHistory);
     }
+    $('#mem-swap').hidden = !m.swap_total;
+    if (m.swap_total) $('#mem-swap').textContent = `Swap: ${bytes(m.swap_total - m.swap_free)} used of ${bytes(m.swap_total)}`;
 
     // Storage
     $('#storage-list').replaceChildren(...(s.storage || []).map((d) => {

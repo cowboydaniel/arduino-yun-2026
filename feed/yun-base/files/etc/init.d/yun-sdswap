@@ -1,0 +1,12 @@
+#!/bin/sh /etc/rc.common
+# Swap to the SD card if one turns up in the first two minutes after boot
+# (see /usr/bin/yun-sdswap).
+
+START=99
+USE_PROCD=1
+
+start_service() {
+	procd_open_instance
+	procd_set_param command /usr/bin/yun-sdswap wait
+	procd_close_instance
+}

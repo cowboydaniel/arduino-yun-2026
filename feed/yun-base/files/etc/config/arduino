@@ -12,3 +12,7 @@ config arduino
 	option wifi_fallback_timeout '60'
 	# Log every bridge command to /tmp/bridge.py-stderr.log
 	option bridge_debug '0'
+	# Swap to a file on the SD card if there's one in at boot (0 = don't)
+	option sd_swap '1'
+	# Size of that swap file, in MB
+	option sd_swap_size '256'

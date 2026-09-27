@@ -33,6 +33,7 @@ Don't flash the test Yún until its owner confirms. Follow [docs/recovery.md](do
 - [ ] Upload a `.hex` from the Yún Panel, and the REST API (`/arduino/...`, `/data/...`, `/mailbox/...`) with and without the password.
 - [ ] Wi-Fi: joining from the panel, falling back to setup mode when the network is gone, WLAN RST for 5 s and 30 s.
 - [ ] `yun-update` from one release to the next.
+- [ ] SD card (2026.4): mounted at /mnt/sda1 with /mnt/sd pointing to it, and `yun-sdswap` makes and uses its 256 MB swap file within two minutes of boot (FAT32, exFAT and ext4 cards). Check `cat /proc/swaps` and how long the first boot takes to write the file.
 
 ## Done without hardware
 

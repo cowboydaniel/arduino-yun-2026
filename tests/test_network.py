@@ -123,6 +123,21 @@ class NetworkSetupTest(unittest.TestCase):
         self.assertEqual(self.uci('firewall.@zone[0].network'), 'lan')
         self.assertEqual(self.uci('umdns.@umdns[0].network'), 'lan wan wwan')
 
+    def test_sd_cards_are_mounted(self):
+        storage = os.path.join(BASE, 'etc', 'uci-defaults', '91-yun-storage')
+        # As fstools' own first-boot default writes it, with no card in.
+        with open(os.path.join(self.conf, 'fstab'), 'w') as f:
+            f.write("config 'global'\n\toption\tanon_swap\t'0'\n\toption\tanon_mount\t'0'\n"
+                    "\toption\tauto_swap\t'1'\n\toption\tauto_mount\t'1'\n")
+        self.run_script(storage)
+        self.assertEqual(self.uci('fstab.@global[0].anon_mount'), '1')
+        self.assertEqual(self.uci('fstab.@global[0].auto_mount'), '1')
+        os.remove(os.path.join(self.conf, 'fstab'))
+        with open(os.path.join(self.conf, 'fstab'), 'w') as f:
+            pass
+        self.run_script(storage)
+        self.assertEqual(self.uci('fstab.@global[0].anon_mount'), '1')
+
     def test_first_boot_twice_is_harmless(self):
         self.first_boot()
         self.first_boot()

@@ -182,6 +182,7 @@ p { margin: 0 0 .75rem; }
 .meter.warn span { background: var(--warn); }
 .meter.bad span { background: var(--bad); }
 .spark { width: 100%; height: 60px; margin-top: .9rem; display: block; }
+.mem-swap { margin: .5rem 0 0; }
 .storage-list { display: flex; flex-direction: column; gap: .9rem; }
 .storage-item .row { display: flex; justify-content: space-between; font-size: .9rem; margin-bottom: .3rem; }
 

@@ -1,0 +1,9 @@
+#!/bin/sh
+# Mount any SD card at /mnt/sda1 (and so on) when it's put in, like the
+# stock firmware: sketches use it through /mnt/sd, and yun-sdswap puts its
+# swap file there. OpenWrt only mounts cards listed in /etc/config/fstab.
+
+uci -q get fstab.@global[0] >/dev/null || uci -q add fstab global >/dev/null
+uci set fstab.@global[0].anon_mount='1'
+uci commit fstab
+exit 0

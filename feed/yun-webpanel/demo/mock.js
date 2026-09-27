@@ -30,7 +30,7 @@
       zonename: settings.zonename, rest_secure: settings.rest_secure,
       firmware: { version: 'Yún 2026.1', openwrt: 'OpenWrt 25.12.5', kernel: '6.12.48', description: 'Arduino Yún 2026 on OpenWrt 25.12.5' },
       bridge: { running: true },
-      memory: { total: 60e6, available: avail },
+      memory: { total: 60e6, available: avail, swap_total: 296e6, swap_free: 291e6 },
       storage: [
         { name: 'Internal flash', used: 1.9e6, total: 5.6e6 },
         { name: 'SD card', used: 1.1e9, total: 61e9 },
