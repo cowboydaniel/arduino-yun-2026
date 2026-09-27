@@ -1,0 +1,77 @@
+#!/bin/sh
+# Update the firmware from this project's GitHub releases, keeping settings.
+#
+#   yun-update check [--json]   is there a newer release?
+#   yun-update apply            download, verify and install it (reboots)
+#   yun-update apply <file>     install a sysupgrade.bin you already have
+#
+# Packages installed with apk are not kept across a firmware update (as
+# with any OpenWrt sysupgrade); list them first with "apk info".
+
+REPO=${YUN_UPDATE_REPO:-cowboydaniel/arduino-yun-2026}
+API=https://api.github.com/repos/$REPO/releases/latest
+TMP=/tmp/yun-update
+ROOT=${ROOT:-}
+
+current() {
+	sed -n "s/^VERSION='\(.*\)'$/\1/p" $ROOT/etc/yun_release 2>/dev/null
+}
+
+fetch() {
+	uclient-fetch -q -T 30 -O "$2" "$1"
+}
+
+die() {
+	echo "yun-update: $*" >&2
+	exit 1
+}
+
+# Fills LATEST, IMAGE_URL, SUMS_URL from the latest release.
+latest() {
+	mkdir -p $TMP
+	fetch "$API" $TMP/release.json || die "can't reach GitHub (is the Yun online?)"
+	LATEST=$(jsonfilter -i $TMP/release.json -e '@.tag_name' | sed 's/^v//')
+	IMAGE_URL=$(jsonfilter -i $TMP/release.json -e '@.assets[*].browser_download_url' |
+		grep 'arduino_yun-2026.*sysupgrade\.bin$' | head -n 1)
+	SUMS_URL=$(jsonfilter -i $TMP/release.json -e '@.assets[*].browser_download_url' |
+		grep '/SHA256SUMS$' | head -n 1)
+	[ -n "$LATEST" ] || die "no release found"
+}
+
+case "$1" in
+check)
+	latest
+	cur=$(current)
+	if [ "$LATEST" != "$cur" ] && [ -n "$IMAGE_URL" ]; then available=true; else available=false; fi
+	if [ "$2" = --json ]; then
+		printf '{"current":"%s","latest":"%s","available":%s}\n' "$cur" "$LATEST" "$available"
+	elif [ $available = true ]; then
+		echo "Yun $LATEST is available (this is $cur). Install it with: yun-update apply"
+	else
+		echo "Up to date (Yun $cur)."
+	fi
+	;;
+apply)
+	if [ -n "$2" ]; then
+		IMAGE=$2
+	else
+		latest
+		[ -n "$IMAGE_URL" ] || die "the latest release has no sysupgrade image"
+		[ -n "$SUMS_URL" ] || die "the latest release has no SHA256SUMS, so the download can't be checked"
+		IMAGE=$TMP/sysupgrade.bin
+		echo "Downloading Yun $LATEST..."
+		fetch "$IMAGE_URL" $IMAGE || die "download failed"
+		fetch "$SUMS_URL" $TMP/SHA256SUMS || die "download failed"
+		want=$(grep "  $(basename "$IMAGE_URL")\$" $TMP/SHA256SUMS | cut -d' ' -f1)
+		[ -n "$want" ] || die "SHA256SUMS doesn't list $(basename "$IMAGE_URL")"
+		[ "$(sha256sum $IMAGE | cut -d' ' -f1)" = "$want" ] || die "the download is damaged (SHA-256 mismatch)"
+	fi
+	sysupgrade -T "$IMAGE" || die "sysupgrade rejected $IMAGE"
+	echo "Installing. The Yun restarts when it's done; the sketch keeps running."
+	exec sysupgrade "$IMAGE"
+	;;
+*)
+	sed -n '2,/^$/s/^# \{0,1\}//p' "$0" >&2
+	exit 2
+	;;
+esac

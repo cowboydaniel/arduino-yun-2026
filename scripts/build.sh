@@ -27,6 +27,7 @@ fi
 cd "$SRC"
 
 # Start from a clean tree so the patches always apply.
+git reset -q
 git checkout -q -- .
 git clean -qfd target package
 for p in "$REPO_DIR"/openwrt/patches/*.patch; do

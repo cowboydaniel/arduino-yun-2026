@@ -18,8 +18,6 @@
 # yun_sta); switching just enables one and disables the other, so the client
 # settings survive a Wi-Fi reset.
 
-. /lib/functions.sh
-
 AP_ADDR=192.168.240.1
 
 ap_ssid() {
