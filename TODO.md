@@ -13,16 +13,16 @@ See [docs/design.md](docs/design.md) for the reasons behind each item.
 
 Don't flash the test Yún until its owner confirms. Follow [docs/recovery.md](docs/recovery.md).
 
-- [ ] Back up every flash partition to the PC.
-- [ ] Rehearse recovery: YunSerialTerminal, stop U-Boot with `lin`, TFTP the stock kernel and `bootm` it from RAM.
-- [ ] Flash a `BARE=1` image from stock Linino (`sysupgrade -n`) and watch the boot over serial: the loader finding the kernel at 0x9f050000, the kernel finding the rootfs, rootfs_data being created.
+- [x] Back up every flash partition to the PC (2026-09-27): each copy matched the board's MD5, plus a whole-chip image for an SPI programmer.
+- [x] Rehearse recovery (2026-09-27), over Wi-Fi with `tools/uboot-rehearsal`: U-Boot took `lin` and commands from the 32U4, and TFTP'd the stock kernel (1310720 bytes) and rootfs (15007744 bytes, CRC32 `0910774e` as expected) into RAM, then booted normally. Not yet run for real: the `erase`, `cp.b` and `cmp.b` of a restore.
+- [ ] ~~Flash a `BARE=1` image first.~~ Skipped: the first flash was the full image (below). Still to check over serial if it doesn't boot: the loader finding the kernel at 0x9f050000, the kernel finding the rootfs, rootfs_data being created.
 - [ ] Check Ethernet, Wi-Fi, the USB host and SD card, the LEDs and the WLAN RST button.
 - [ ] Check that `sysupgrade.bin` from the new firmware writes only `firmware` and the board still boots.
 
 ## Second hardware test: the full image
 
-- [ ] `yun-migrate -t` on stock Linino (a dry run: checks the image and builds the settings archive).
-- [ ] `yun-migrate` for real, and check the imported settings in `/etc/yun-migrate.log`.
+- [x] `yun-migrate -t` on stock Linino (2026-09-27). It found three bugs, now fixed: stock busybox has no `sha256sum` (use the MD5 there), the RAM check read `MemFree` not `MemAvailable`, and the settings archive was world-readable.
+- [ ] `yun-migrate` for real: flashed on 2026-09-27 at 20:45 with the cloud-built image (MD5 `c57f88ebc290cd894107a36d954ca4b9`). The write finished and the board rebooted at 20:46; waiting for its first boot. Then check the imported settings in `/etc/yun-migrate.log`.
 - [ ] `Bridge.begin()` starts the bridge from the serial console; the Bridge examples (Process, FileIO, HttpClient, Console, Bridge/datastore, Mailbox) work.
 - [ ] Upload a sketch over Wi-Fi from the Arduino IDE (discovery, SSH, `run-avrdude` over libgpiod).
 - [ ] Upload a `.hex` from the Yún Panel, and the REST API (`/arduino/...`, `/data/...`, `/mailbox/...`) with and without the password.
@@ -40,10 +40,11 @@ Don't flash the test Yún until its owner confirms. Follow [docs/recovery.md](do
 - [x] `yun-migrate` and the first-boot settings import.
 - [x] `yun-update`.
 - [x] `tools/check-image.py` and the backup and recovery guide.
+- [x] First boot keeps Ethernet reachable (firewall, SSH) even if the Wi-Fi radio isn't ready, and the settings import waits for the Wi-Fi sections instead of losing them.
 - [x] GitHub Actions: tests on every push, firmware builds on demand and releases for tags.
 
 ## Release
 
 - [ ] First tagged release with `linino-upgrade.bin`, `sysupgrade.bin`, `SHA256SUMS` and `MD5SUMS`.
 - [ ] User docs: installing from stock, the panel, recovering.
-- [ ] Choose a license for the repo (the ported code is GPL-2.0-or-later).
+- [x] License: GPL-2.0-or-later, except the OpenWrt patches, which are GPL-2.0-only like OpenWrt (see `LICENSE`).
