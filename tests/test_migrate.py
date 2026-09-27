@@ -290,14 +290,72 @@ class MigrateTest(unittest.TestCase):
         with open(os.path.join(self.tmp.name, 'sysupgrade.log')) as f:
             self.assertEqual(f.read().strip(), f'sysupgrade -n {self.image}')
 
-    def test_checksum(self):
+    def image_sum(self, algo):
         import hashlib
         with open(self.image, 'rb') as f:
-            good = hashlib.sha256(f.read()).hexdigest()
-        self.assertEqual(self.migrate('-t', '-n', self.image, good.upper()).returncode, 0)
+            return hashlib.new(algo, f.read()).hexdigest()
+
+    def test_md5(self):
+        p = self.migrate('-t', '-n', self.image, self.image_sum('md5').upper())
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn('MD5 OK', p.stdout)
+        p = self.migrate('-t', '-n', self.image, '0' * 32)
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("MD5 doesn't match", p.stderr)
+
+    def test_md5_file_next_to_the_image(self):
+        with open(self.image + '.md5', 'w') as f:
+            f.write(self.image_sum('md5') + '  linino-upgrade.bin\n')
+        p = self.migrate('-t', '-n', self.image)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn('MD5 OK', p.stdout)
+
+    def test_sha256_where_available(self):
+        p = self.migrate('-t', '-n', self.image, self.image_sum('sha256'))
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn('SHA-256 OK', p.stdout)
         p = self.migrate('-t', '-n', self.image, '0' * 64)
         self.assertEqual(p.returncode, 1)
         self.assertIn("SHA-256 doesn't match", p.stderr)
+
+    def test_sha256_on_stock_busybox(self):
+        # The stock firmware has md5sum but no sha256sum: say so, rather
+        # than calling the image damaged.
+        only = os.path.join(self.tmp.name, 'stock-bin')
+        os.makedirs(only)
+        for tool in ('sh', 'awk', 'cat', 'chmod', 'cp', 'cut', 'date', 'grep', 'gzip', 'head', 'mkdir',
+                     'mktemp', 'md5sum', 'rm', 'tail', 'tar', 'tr', 'wc', 'zcat',
+                     'python3'):  # for the stand-in hexdump
+            os.symlink(shutil.which(tool), os.path.join(only, tool))
+        env = self.env(self.stock)
+        env['PATH'] = self.bin + os.pathsep + only
+        p = subprocess.run([shutil.which('sh'), MIGRATE, '-t', '-n', self.image, self.image_sum('sha256')],
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(p.returncode, 1)
+        self.assertIn('no sha256sum: pass the MD5', p.stderr)
+        p = subprocess.run([shutil.which('sh'), MIGRATE, '-t', '-n', self.image, self.image_sum('md5')],
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn('MD5 OK', p.stdout)
+
+    def test_bad_checksums(self):
+        self.assertIn("isn't hexadecimal", self.migrate('-t', '-n', self.image, 'z' * 32).stderr)
+        self.assertIn('pass the MD5 (32) or SHA-256 (64)', self.migrate('-t', '-n', self.image, 'ab' * 20).stderr)
+
+    def test_no_low_memory_warning_when_cache_can_be_reclaimed(self):
+        # The probed board: 3 MB free, but 30 MB available.
+        p = self.migrate('-t', '-n', self.image)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertNotIn('warning', p.stdout)
+
+    def test_low_memory_warning(self):
+        write(os.path.join(self.proc, 'meminfo'),
+              'MemTotal:          60904 kB\nMemFree:            3248 kB\nMemAvailable:       2000 kB\n')
+        self.assertIn('only 2000 KB of RAM free', self.migrate('-t', '-n', self.image).stdout)
+
+    def test_memory_on_kernels_without_memavailable(self):
+        write(os.path.join(self.proc, 'meminfo'), 'MemTotal:          60904 kB\nMemFree:            3248 kB\n')
+        self.assertIn('only 3248 KB of RAM free', self.migrate('-t', '-n', self.image).stdout)
 
     def test_refuses_wrong_images_and_boards(self):
         bad = os.path.join(self.tmp.name, 'bad.bin')

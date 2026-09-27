@@ -44,6 +44,6 @@ Don't flash the test Yún until its owner confirms. Follow [docs/recovery.md](do
 
 ## Release
 
-- [ ] First tagged release with `linino-upgrade.bin`, `sysupgrade.bin` and `SHA256SUMS`.
+- [ ] First tagged release with `linino-upgrade.bin`, `sysupgrade.bin`, `SHA256SUMS` and `MD5SUMS`.
 - [ ] User docs: installing from stock, the panel, recovering.
 - [ ] Choose a license for the repo (the ported code is GPL-2.0-or-later).
