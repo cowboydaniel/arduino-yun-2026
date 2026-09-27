@@ -1,0 +1,42 @@
+# U-Boot power-on output of a stock Linino 1.5.3 Yun, captured on 2026-09-27.
+# Recorded by tools/uboot-capture on the 32U4 (Serial1, 250000 baud) during two reboots
+# started with `reboot` from Linux, then read back from its EEPROM with avrdude over SPI.
+# The first reboot recorded the first 1008 bytes; the second skipped those and recorded the rest.
+# The eth0/eth1 MACs are U-Boot placeholders, not the board's real addresses.
+
+U-Boot 1.1.4-linino-gca1b422d-dirty (Sep 15 2014 - 04:07:17)
+
+Linino Board (ar9331) U-boot
+DRAM:  64 MB
+Top of RAM usable for U-Boot at: 84000000
+Reserving 217k for U-Boot at: 83fc8000
+Reserving 192k for malloc() at: 83f98000
+Reserving 44 Bytes for Board Info at: 83f97fd4
+Reserving 36 Bytes for Global Data at: 83f97fb0
+Reserving 128k for boot params() at: 83f77fb0
+Stack Pointer at: 83f77f98
+Now running in RAM - U-Boot at: 83fc8000
+Flash Manuf Id 0xef, DeviceId0 0x40, DeviceId1 0x18
+flash size 16777216, sector count = 256
+Flash: 16 MB
+In:    serial
+Out:   serial
+Err:   serial
+Net:   eth0: b4:21:8a:00:00:00
+eth1: b4:21:8a:00:00:01
+eth0, eth1
+autoboot in 4 seconds (stop with 'lin')...
+## Booting image at 9fea0000 ...
+   Image Name:   MIPS OpenWrt Linux-3.18.23
+   Created:      2016-05-10   8:20:47 UTC
+   Image Type:   MIPS Linux Kernel Image (lzma compressed)
+   Data Size:    1207736 Bytes =  1.2 MB
+   Load Address: 80060000
+   Entry Point:  80060000
+   Verifying Checksum at 0x9fea0040 ...OK
+   Uncompressing Kernel Image ... OK
+No initrd
+## Transferring control to Linux (at address 80060000) ...
+## Giving linux memsize in bytes, 67108864
+
+Starting kernel
