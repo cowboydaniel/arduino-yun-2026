@@ -13,6 +13,7 @@
   const jobs = {};
   let update = null;
   let usbInstalled = false;
+  let vpnState = { installed: false, configured: false };
   const OUTPUT = {
     free: '              total        used        free      shared  buff/cache   available\nMem:          55624       24310       18204         92       13110       27870\nSwap:         27808           0       27808\n',
     'df -h': 'Filesystem                Size      Used Available Use% Mounted on\n/dev/root                 5.8M      5.8M         0 100% /rom\ntmpfs                    27.2M    312.0K     26.9M   1% /tmp\n/dev/mtdblock5            5.6M      1.9M      3.7M  34% /overlay\n/dev/sda1                58.9G      1.1G     57.8G   2% /mnt/sda1\n',
@@ -117,6 +118,23 @@
           usbInstalled = true;
           return { id };
         }
+        case 'vpn_status': {
+          const st = { ...vpnState };
+          if (st.configured && st.enabled) Object.assign(st, { up: true, handshake: Math.floor(Date.now() / 1000) - 12, rx_bytes: 48213, tx_bytes: 90112, public_key: 'kQ3d7e0x8Hc1cZ0v9Qe8yYlq2Zb5m3sT0pWf6rN1aUs=' });
+          return st;
+        }
+        case 'vpn_install': {
+          const id = Math.random().toString(16).slice(2, 18).padEnd(16, '0');
+          jobs[id] = { out: new TextEncoder().encode('(1/5) Installing kmod-udptunnel4\n(4/5) Installing kmod-wireguard\n(5/5) Installing wireguard-tools\nOK: 11 MiB in 188 packages\n'), rc: 0, cwd: '/tmp', at: Date.now() + 1200 };
+          vpnState.installed = true;
+          return { id };
+        }
+        case 'vpn_import':
+          if (!/\[Peer\]/.test(params.config)) throw new Error('the file must have exactly one [Peer] (the server); it has 0');
+          vpnState = { installed: true, configured: true, enabled: true, server: 'vpn.example.com:51820', addresses: ['10.8.0.5/32'], allowed_ips: ['10.8.0.0/24'] };
+          return {};
+        case 'vpn_set': vpnState.enabled = params.enabled; return {};
+        case 'vpn_remove': vpnState = { installed: true, configured: false }; return {};
         case 'shell_stop': if (jobs[params.id]) jobs[params.id].stopped = true; return {};
       }
       throw new Error(`no mock for ${object}.${method}`);

@@ -205,11 +205,11 @@ p { margin: 0 0 .75rem; }
 /* Forms */
 .field { display: flex; flex-direction: column; gap: .3rem; margin-bottom: .9rem; font-size: .88rem; font-weight: 600; min-width: 0; }
 .field input, .field select { width: 100%; }
-input, select {
+input, select, textarea {
   font: inherit; font-weight: 400; color: var(--text); background: var(--surface);
   border: 1px solid var(--border); border-radius: 10px; padding: .55rem .75rem; min-width: 0;
 }
-input:focus, select:focus, .btn:focus-visible, .dropzone:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+input:focus, select:focus, textarea:focus, .btn:focus-visible, .dropzone:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
 .inline-form { display: flex; gap: .5rem; margin-top: .75rem; }
 .inline-form input { flex: 1; }
 .switch-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .5rem; }
@@ -253,6 +253,9 @@ input:focus, select:focus, .btn:focus-visible, .dropzone:focus-within { outline:
 .networks .current { color: var(--accent); font-size: .8rem; font-weight: 650; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
 .join-form { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); max-width: 420px; }
+
+textarea { font: .82rem/1.45 var(--mono); resize: vertical; }
+.field textarea { width: 100%; }
 
 /* USB devices */
 .usb-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .5rem; }

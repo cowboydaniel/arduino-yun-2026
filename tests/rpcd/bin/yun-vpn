@@ -1,0 +1,7 @@
+#!/bin/sh
+echo "yun-vpn $*" >> "$CALL_LOG"
+if [ "$1" = import ]; then
+	grep -q '^\[Peer\]' "$2" || { echo "yun-vpn: the file must have exactly one [Peer] (the server); it has 0"; exit 1; }
+	cat "$2" > "$CALL_LOG.conf"
+fi
+exit 0

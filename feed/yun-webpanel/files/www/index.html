@@ -201,6 +201,32 @@
             <p class="muted">Turn the Yún back into an open access point called <strong id="ap-ssid">Arduino Yun</strong>, reachable at <code>192.168.240.1</code>. Holding WLAN RST for 5 seconds does the same.</p>
             <div class="card-actions"><button class="btn btn-danger" id="ap-btn">Switch to setup mode</button></div>
           </article>
+          <article class="card span-2" id="vpn-card">
+            <header class="card-head"><h2>VPN (WireGuard)</h2><span class="badge" id="vpn-badge" hidden></span></header>
+            <div id="vpn-install" hidden>
+              <p class="muted">Connect the Yún to a WireGuard VPN (on your home router, a server, or a VPN service) and reach it, this panel included, from anywhere you can reach that VPN.</p>
+              <div class="card-actions"><button class="btn btn-primary" type="button" id="vpn-install-btn">Install WireGuard</button></div>
+              <p class="muted small">Downloads about 150 KB from downloads.openwrt.org, so the Yún has to be online.</p>
+            </div>
+            <form id="vpn-form" hidden>
+              <p class="muted">Paste the WireGuard config for the Yún, or choose the file: the same kind of file a phone's WireGuard app imports. Make a new one for the Yún on your router's or VPN service's WireGuard page, with its own keys.</p>
+              <label class="field"><span>Config</span><textarea id="vpn-config" rows="9" spellcheck="false" autocapitalize="off" placeholder="[Interface]&#10;PrivateKey = ...&#10;Address = 10.8.0.5/32&#10;&#10;[Peer]&#10;PublicKey = ...&#10;AllowedIPs = 10.8.0.0/24&#10;Endpoint = vpn.example.com:51820"></textarea></label>
+              <div class="card-actions">
+                <button class="btn btn-primary" type="submit">Connect</button>
+                <label class="btn"><input type="file" id="vpn-file" accept=".conf,text/plain" hidden>Choose file</label>
+                <button class="btn btn-ghost" type="button" id="vpn-cancel" hidden>Cancel</button>
+              </div>
+            </form>
+            <div id="vpn-status" hidden>
+              <dl class="kv" id="vpn-kv"></dl>
+              <div class="card-actions">
+                <button class="btn" type="button" id="vpn-toggle">Turn off</button>
+                <button class="btn" type="button" id="vpn-replace">Use another config</button>
+                <button class="btn btn-danger" type="button" id="vpn-remove">Remove</button>
+              </div>
+            </div>
+            <details class="log" id="vpn-log-wrap" hidden><summary id="vpn-log-title">Installing</summary><pre id="vpn-log"></pre></details>
+          </article>
           <article class="card">
             <header class="card-head"><h2>Ethernet</h2></header>
             <p class="muted">The Ethernet port gets its address from your router (DHCP).</p>

@@ -251,6 +251,83 @@ class NetworkSetupTest(unittest.TestCase):
             self.assertEqual(p.returncode, 1, args)
         self.assertEqual(self.uci('wireless.yun_sta.disabled'), '1')
 
+    WG_CONF = """# From the router's WireGuard page
+[Interface]
+PrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=
+Address = 10.8.0.5/32, fd00:8::5/128
+DNS = 10.8.0.1
+
+[Peer]
+PublicKey = xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=
+PresharedKey = /UwcSPg38hW/D9Y3tcS1FOV0K1wuURMbS0sesJEP5ak=
+AllowedIPs = 10.8.0.0/24,fd00:8::/64
+Endpoint = vpn.example.com:51820
+"""
+
+    def yun_vpn(self, *args, conf=None, check=True):
+        if conf is not None:
+            path = os.path.join(self.tmp.name, 'wg.conf')
+            with open(path, 'w') as f:
+                f.write(conf)
+            args = (args[0], path) + args[1:]
+        p = subprocess.run(['sh', os.path.join(BASE, 'usr', 'bin', 'yun-vpn'), *args],
+                           capture_output=True, text=True, env=self.env)
+        if check:
+            self.assertEqual(p.returncode, 0, p.stderr)
+        return p
+
+    def uci_list(self, key):
+        p = subprocess.run([UCI, '-q', '-c', self.conf, 'get', key], capture_output=True, text=True)
+        return p.stdout.split()
+
+    def test_vpn_import(self):
+        self.first_boot()
+        self.yun_vpn('import', conf=self.WG_CONF)
+        self.assertEqual(self.uci('network.yunvpn.proto'), 'wireguard')
+        self.assertEqual(self.uci('network.yunvpn.private_key'), 'yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=')
+        self.assertEqual(self.uci_list('network.yunvpn.addresses'), ['10.8.0.5/32', 'fd00:8::5/128'])
+        self.assertEqual(self.uci('network.yunvpn_server'), 'wireguard_yunvpn')
+        self.assertEqual(self.uci('network.yunvpn_server.public_key'), 'xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=')
+        self.assertEqual(self.uci('network.yunvpn_server.preshared_key'), '/UwcSPg38hW/D9Y3tcS1FOV0K1wuURMbS0sesJEP5ak=')
+        self.assertEqual(self.uci_list('network.yunvpn_server.allowed_ips'), ['10.8.0.0/24', 'fd00:8::/64'])
+        self.assertEqual(self.uci('network.yunvpn_server.endpoint_host'), 'vpn.example.com')
+        self.assertEqual(self.uci('network.yunvpn_server.endpoint_port'), '51820')
+        self.assertEqual(self.uci('network.yunvpn_server.persistent_keepalive'), '25')
+        self.assertEqual(self.uci('network.yunvpn_server.route_allowed_ips'), '1')
+        self.assertIn('yunvpn', self.uci('firewall.@zone[1].network').split())
+
+        # Importing again replaces it, and doesn't list the zone twice.
+        self.yun_vpn('import', conf=self.WG_CONF.replace('vpn.example.com:51820', '[2001:db8::1]:4500')
+                     .replace('DNS = 10.8.0.1', 'MTU = 1380') + 'PersistentKeepalive = 15\n')
+        self.assertEqual(self.uci('network.yunvpn_server.endpoint_host'), '2001:db8::1')
+        self.assertEqual(self.uci('network.yunvpn_server.endpoint_port'), '4500')
+        self.assertEqual(self.uci('network.yunvpn_server.persistent_keepalive'), '15')
+        self.assertEqual(self.uci('network.yunvpn.mtu'), '1380')
+        self.assertEqual(self.uci('firewall.@zone[1].network').split().count('yunvpn'), 1)
+
+        self.yun_vpn('off')
+        self.assertEqual(self.uci('network.yunvpn.disabled'), '1')
+        self.yun_vpn('on')
+        self.assertIsNone(self.uci('network.yunvpn.disabled'))
+        self.yun_vpn('remove')
+        self.assertIsNone(self.uci('network.yunvpn'))
+        self.assertIsNone(self.uci('network.yunvpn_server'))
+        self.assertNotIn('yunvpn', self.uci('firewall.@zone[1].network').split())
+
+    def test_vpn_rejects_bad_files(self):
+        self.first_boot()
+        c = self.WG_CONF
+        for bad, why in ((c.replace('PrivateKey = yAnz', 'PrivateKey = zzz'), 'PrivateKey'),
+                         (c.replace('Endpoint = vpn.example.com:51820', ''), 'Endpoint'),
+                         (c.replace('vpn.example.com', 'vpn.example.com;reboot'), 'Endpoint'),
+                         (c.replace('10.8.0.5/32', '10.8.0.5/32 $(reboot)'), 'Address'),
+                         (c + '[Peer]\nPublicKey = xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=\n', 'exactly one'),
+                         ('hello', 'exactly one')):
+            p = self.yun_vpn('import', conf=bad, check=False)
+            self.assertEqual(p.returncode, 1, why)
+            self.assertIn(why, p.stderr)
+        self.assertIsNone(self.uci('network.yunvpn'))
+
     def test_client_needs_a_key(self):
         self.first_boot()
         p = subprocess.run(['sh', os.path.join(BASE, 'usr', 'bin', 'yun-wifi'), 'client', 'Home', 'psk2'],

@@ -777,6 +777,76 @@ const methods = {
 		}
 	},
 
+	vpn_status: {
+		call: function() {
+			let installed = !!access('/usr/bin/wg', 'x') && length(glob('/lib/modules/*/wireguard.ko')) > 0;
+			let c = cursor();
+			let iface = c.get_all('network', 'yunvpn');
+			let peer = c.get_all('network', 'yunvpn_server');
+			let res = { installed, configured: !!iface };
+			if (!iface)
+				return res;
+			res.enabled = iface.disabled != '1';
+			res.addresses = iface.addresses ?? [];
+			res.server = peer ? `${peer.endpoint_host}:${peer.endpoint_port}` : null;
+			res.allowed_ips = peer?.allowed_ips ?? [];
+			res.up = !!netifd_status('yunvpn')?.up;
+			if (installed && res.up) {
+				let r = run('wg show yunvpn dump');
+				let lines = split(trim(r.output), '\n');
+				res.public_key = split(lines[0] ?? '', '\t')[1];
+				let f = split(lines[1] ?? '', '\t');
+				if (length(f) >= 7) {
+					res.handshake = +f[4] || null;      // seconds since the epoch
+					res.rx_bytes = +f[5];
+					res.tx_bytes = +f[6];
+				}
+			}
+			return res;
+		}
+	},
+
+	vpn_install: {
+		call: function() {
+			return shell_launch('apk update >/dev/null && apk add wireguard-tools kmod-wireguard', '/tmp');
+		}
+	},
+
+	vpn_import: {
+		args: { config: '' },
+		call: function(req) {
+			let conf = req.args.config;
+			if (type(conf) != 'string' || !length(conf) || length(conf) > 8192 || index(conf, '\u0000') >= 0)
+				return { error: 'Paste or choose a WireGuard config file' };
+			let path = '/tmp/yun-vpn-import.conf';
+			let f = open(path, 'w', 0600);
+			if (!f)
+				return { error: "Can't write the config" };
+			f.write(conf);
+			f.close();
+			let r = run(`yun-vpn import ${path}`);
+			unlink(path);
+			if (r.code != 0)
+				return { error: replace(trim(r.output), /^yun-vpn: /, '') || 'The config was not accepted' };
+			return { ok: true };
+		}
+	},
+
+	vpn_set: {
+		args: { enabled: false },
+		call: function(req) {
+			let r = run(`yun-vpn ${req.args.enabled ? 'on' : 'off'}`);
+			return r.code == 0 ? { ok: true } : { error: replace(trim(r.output), /^yun-vpn: /, '') };
+		}
+	},
+
+	vpn_remove: {
+		call: function() {
+			let r = run('yun-vpn remove');
+			return r.code == 0 ? { ok: true } : { error: trim(r.output) };
+		}
+	},
+
 	update_check: {
 		call: function() {
 			if (!access('/usr/bin/yun-update', 'x'))

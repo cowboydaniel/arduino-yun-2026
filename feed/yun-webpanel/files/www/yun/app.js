@@ -164,6 +164,10 @@
       dataTimer = setInterval(refreshData, 2000);
     }
     if (name === 'network' && !$('#scan-list').children.length) scan();
+    if (name === 'network') {
+      refreshVpn();
+      dataTimer = setInterval(refreshVpn, 5000);
+    }
     if (name === 'terminal') $('#term-input').focus({ preventScroll: true });
   }
 
@@ -520,28 +524,10 @@
     usbInstalling = true;
     refreshUsb();
     const wrap = $('#usb-log-wrap'), out = $('#usb-log');
-    wrap.hidden = false;
-    wrap.open = true;
-    $('#usb-log-title').textContent = `Installing ${pkg}…`;
-    out.textContent = '';
     try {
       const { id } = await api.call('yun', 'usb_install', { package: pkg });
-      const decoder = new TextDecoder();
-      let offset = 0, r;
-      do {
-        await new Promise((res) => setTimeout(res, 500));
-        r = await api.call('yun', 'shell_poll', { id, offset });
-        offset = r.offset;
-        out.textContent += decoder.decode(base64Bytes(r.output || ''), { stream: !r.done });
-        out.scrollTop = out.scrollHeight;
-      } while (!r.done);
-      if (r.rc === 0) {
-        $('#usb-log-title').textContent = `Installed ${pkg}`;
-        toast(`${pkg} installed`);
-      } else {
-        $('#usb-log-title').textContent = `Couldn't install ${pkg}`;
-        toast(`Couldn't install ${pkg}: see the details`, true);
-      }
+      const ok = await followJob(id, wrap, $('#usb-log-title'), out, `Installing ${pkg}`);
+      toast(ok ? `${pkg} installed` : `Couldn't install ${pkg}: see the details`, !ok);
     } catch (err) {
       if (err.code === 'auth') return signedOut();
       $('#usb-log-title').textContent = `Couldn't install ${pkg}`;
@@ -550,6 +536,126 @@
       usbInstalling = false;
       refreshUsb();
     }
+  }
+
+  // --- VPN (WireGuard) ---------------------------------------------------
+
+  let vpn = null;
+  let vpnEditing = false;    // replacing the config of a VPN that's set up
+
+  function ago(seconds) {
+    if (seconds < 90) return `${Math.max(0, Math.round(seconds))} s ago`;
+    if (seconds < 5400) return `${Math.round(seconds / 60)} min ago`;
+    return `${Math.round(seconds / 3600)} h ago`;
+  }
+
+  async function refreshVpn() {
+    try {
+      vpn = await api.call('yun', 'vpn_status');
+    } catch (err) {
+      if (err.code === 'auth') signedOut();
+      return;
+    }
+    $('#vpn-install').hidden = vpn.installed;
+    $('#vpn-form').hidden = !vpn.installed || (vpn.configured && !vpnEditing);
+    $('#vpn-cancel').hidden = !vpn.configured;
+    $('#vpn-status').hidden = !vpn.configured || !$('#vpn-form').hidden;
+    if (vpn.configured) $('#vpn-log-wrap').hidden = true;
+    const badge = $('#vpn-badge');
+    if (!vpn.configured) {
+      badge.hidden = true;
+      return;
+    }
+    const now = Date.now() / 1000;
+    const recent = vpn.handshake && now - vpn.handshake < 180;
+    if (!vpn.enabled) setBadge(badge, 'Off', '');
+    else if (recent) setBadge(badge, 'Connected', 'ok');
+    else setBadge(badge, vpn.installed ? 'Waiting for the server' : 'WireGuard not installed', 'warn');
+    $('#vpn-toggle').textContent = vpn.enabled ? 'Turn off' : 'Turn on';
+    setKV($('#vpn-kv'), [
+      ['Server', vpn.server],
+      ['The Yún on the VPN', (vpn.addresses || []).join(', ')],
+      ['Reaches', (vpn.allowed_ips || []).join(', ')],
+      ['Last contact', vpn.handshake ? ago(now - vpn.handshake) : (vpn.enabled ? 'not yet' : null)],
+      ['Received', vpn.rx_bytes != null && bytes(vpn.rx_bytes)],
+      ['Sent', vpn.tx_bytes != null && bytes(vpn.tx_bytes)],
+      ['Its public key', vpn.public_key],
+    ]);
+  }
+
+  // Run an install job and show its output; resolves to true on success.
+  async function followJob(id, wrap, title, out, label) {
+    wrap.hidden = false;
+    wrap.open = true;
+    title.textContent = `${label}…`;
+    out.textContent = '';
+    const decoder = new TextDecoder();
+    let offset = 0, r;
+    do {
+      await new Promise((res) => setTimeout(res, 500));
+      r = await api.call('yun', 'shell_poll', { id, offset });
+      offset = r.offset;
+      out.textContent += decoder.decode(base64Bytes(r.output || ''), { stream: !r.done });
+      out.scrollTop = out.scrollHeight;
+    } while (!r.done);
+    title.textContent = r.rc === 0 ? `${label}: done` : `${label}: failed`;
+    return r.rc === 0;
+  }
+
+  function setupVpn() {
+    $('#vpn-install-btn').addEventListener('click', async (ev) => {
+      ev.target.disabled = true;
+      try {
+        const { id } = await api.call('yun', 'vpn_install');
+        const ok = await followJob(id, $('#vpn-log-wrap'), $('#vpn-log-title'), $('#vpn-log'), 'Installing WireGuard');
+        toast(ok ? 'WireGuard installed' : "Couldn't install WireGuard: see the details", !ok);
+      } catch (err) {
+        toast(err.message, true);
+      } finally {
+        ev.target.disabled = false;
+        refreshVpn();
+      }
+    });
+    $('#vpn-file').addEventListener('change', async (ev) => {
+      const file = ev.target.files[0];
+      ev.target.value = '';
+      if (!file) return;
+      if (file.size > 8192) return toast("That's too big for a WireGuard config", true);
+      $('#vpn-config').value = await file.text();
+    });
+    $('#vpn-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      try {
+        await api.call('yun', 'vpn_import', { config: $('#vpn-config').value });
+        $('#vpn-config').value = '';
+        vpnEditing = false;
+        toast('Connecting to the VPN…');
+      } catch (err) {
+        toast(`Not connected: ${err.message}`, true);
+      }
+      refreshVpn();
+    });
+    $('#vpn-cancel').addEventListener('click', () => {
+      $('#vpn-config').value = '';
+      vpnEditing = false;
+      refreshVpn();
+    });
+    $('#vpn-replace').addEventListener('click', () => {
+      vpnEditing = true;
+      $('#vpn-form').hidden = false;
+      $('#vpn-status').hidden = true;
+      $('#vpn-cancel').hidden = false;
+      $('#vpn-config').focus();
+    });
+    $('#vpn-toggle').addEventListener('click', async () => {
+      await api.call('yun', 'vpn_set', { enabled: !vpn?.enabled }).catch((e) => toast(e.message, true));
+      setTimeout(refreshVpn, 1500);
+    });
+    $('#vpn-remove').addEventListener('click', async () => {
+      if (!confirm('Remove the VPN? The Yún disconnects from it and forgets its keys.')) return;
+      await api.call('yun', 'vpn_remove').catch((e) => toast(e.message, true));
+      refreshVpn();
+    });
   }
 
   // --- Bridge data ---------------------------------------------------------
@@ -1022,6 +1128,7 @@
     setupDropzones();
     setupSettings();
     setupTerminal();
+    setupVpn();
     setupTheme();
 
     $('#app').classList.remove('booting');

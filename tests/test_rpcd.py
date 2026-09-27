@@ -323,6 +323,33 @@ class RpcdPluginTest(unittest.TestCase):
         self.assertEqual(out.decode(), 'apk add kmod-usb-serial-ch341\n')
         self.assertEqual(r['rc'], 0)
 
+    def test_vpn(self):
+        self.assertEqual(self.call('vpn_status'), {'installed': False, 'configured': False})
+        r = self.call('vpn_import', {'config': '[Interface]\nPrivateKey = x\n'})
+        self.assertEqual(r, {'error': 'the file must have exactly one [Peer] (the server); it has 0'})
+        conf = '[Interface]\nPrivateKey = x\n[Peer]\nEndpoint = a:1\n'
+        self.assertEqual(self.call('vpn_import', {'config': conf}), {'ok': True})
+        with open(self.env['CALL_LOG'] + '.conf') as f:
+            self.assertEqual(f.read(), conf)
+        self.assertFalse(os.path.exists('/tmp/yun-vpn-import.conf'))    # the keys don't stay in /tmp
+        self.assertIn('error', self.call('vpn_import', {'config': ''}))
+        self.assertEqual(self.call('vpn_set', {'enabled': False}), {'ok': True})
+        self.assertEqual(self.call('vpn_remove'), {'ok': True})
+        with open(self.env['CALL_LOG']) as f:
+            self.assertEqual(f.read().splitlines(), ['yun-vpn import /tmp/yun-vpn-import.conf'] * 2 +
+                             ['yun-vpn off', 'yun-vpn remove'])
+
+        with open(self.env['UCI_FIXTURE']) as f:
+            uci = json.load(f)
+        uci['network'] = {'yunvpn': {'proto': 'wireguard', 'addresses': ['10.8.0.5/32']},
+                          'yunvpn_server': {'endpoint_host': 'vpn.example.com', 'endpoint_port': '51820',
+                                            'allowed_ips': ['10.8.0.0/24']}}
+        with open(self.env['UCI_FIXTURE'], 'w') as f:
+            json.dump(uci, f)
+        st = self.call('vpn_status')
+        self.assertEqual((st['configured'], st['enabled'], st['server'], st['addresses'], st['up']),
+                         (True, True, 'vpn.example.com:51820', ['10.8.0.5/32'], False))
+
     def test_update_progress(self):
         # The paths are fixed; save whatever a real update left there.
         os.makedirs('/tmp/yun-update', exist_ok=True)
