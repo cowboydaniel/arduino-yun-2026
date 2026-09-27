@@ -145,7 +145,7 @@ The packages are in [`feed/`](../feed), built into the image by `scripts/build.s
 
 | Package | What it is |
 | --- | --- |
-| `yun-bridge` | YunBridge ported to Python 3 (`python3-light`). Same serial protocol and ports, so sketches work unchanged; also fixes several crashes and hangs in the original. |
+| `yun-bridge` | YunBridge ported to Python 3 (`python3-light`). Same serial protocol and ports, so sketches work unchanged; also fixes several crashes and hangs in the original. Brings `curl`, which the Bridge library's `HttpClient` runs. `python3-openssl` is left out to save 1.8 MB of flash, so `BridgeSSLClient` needs `apk add python3-openssl`. |
 | `yun-base` | `run-avrdude`, `merge-sketch-with-bootloader.lua` (now a shell script), `reset-mcu`, the WLAN RST button (5 s: setup mode, 30 s: factory reset), `yun-wifi` (setup access point, Wi-Fi client, and falling back to the access point when the network is gone at boot), `_arduino._tcp` over umdns for the IDE, `yun-update` and the first-boot scripts. |
 | `yun-webpanel` | The Yún Panel at `/` (an rpcd ucode plugin behind a static page), and the stock REST API (`/arduino`, `/data`, `/mailbox`) as a uhttpd ucode handler. |
 

@@ -13,7 +13,10 @@ define Package/yun-bridge
   SECTION:=arduino
   CATEGORY:=Arduino
   TITLE:=Arduino Yun Bridge (Linux side, Python 3)
-  DEPENDS:=+python3-light +python3-logging +python3-openssl
+  # curl: the Bridge library's HttpClient runs it on the Linux side.
+  # python3-openssl (1.8 MB) is left out to save flash; install it with apk
+  # for BridgeSSLClient.
+  DEPENDS:=+python3-light +python3-logging +curl
   PKGARCH:=all
 endef
 
