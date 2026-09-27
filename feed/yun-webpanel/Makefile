@@ -14,9 +14,11 @@ define Package/yun-webpanel
   CATEGORY:=Arduino
   TITLE:=Yun Panel and the Yun REST API
   DEPENDS:=+yun-base +uhttpd +uhttpd-mod-ubus +uhttpd-mod-ucode +rpcd +rpcd-mod-ucode \
-	+cgi-io +iwinfo +ucode-mod-socket +ucode-mod-uci +ucode-mod-ubus +ucode-mod-fs
+	+cgi-io +ucode-mod-socket +ucode-mod-uci +ucode-mod-ubus +ucode-mod-fs
   PKGARCH:=all
 endef
+
+# The iwinfo command it uses comes with wifi-scripts (the ucode version).
 
 define Package/yun-webpanel/description
  The board's web page (status, Wi-Fi setup, sketch upload, datastore and
