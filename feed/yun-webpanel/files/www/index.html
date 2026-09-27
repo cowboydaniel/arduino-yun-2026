@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Yún Panel</title>
+<link rel="icon" href="yun/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="yun/style.css">
+</head>
+<body>
+<div id="app" class="booting">
+  <!-- Login -->
+  <section id="login" class="login" hidden>
+    <form class="login-card" id="login-form">
+      <div class="brand brand-lg"><span class="brand-mark">Yún</span><span class="brand-sub">Panel</span></div>
+      <p class="muted" id="login-hostname">Sign in to your board</p>
+      <label class="field">
+        <span>Password</span>
+        <input type="password" id="login-password" autocomplete="current-password" autofocus>
+      </label>
+      <p class="error" id="login-error" hidden></p>
+      <button class="btn btn-primary btn-block" type="submit">Sign in</button>
+      <p class="muted small">This is the board's <code>root</code> password, the same one you use for SSH and uploads from the Arduino IDE.</p>
+    </form>
+  </section>
+
+  <!-- Main -->
+  <div id="shell" class="shell" hidden>
+    <nav class="sidebar" aria-label="Sections">
+      <div class="brand"><span class="brand-mark">Yún</span><span class="brand-sub">Panel</span></div>
+      <a href="#overview" data-view="overview" class="nav-link"><svg viewBox="0 0 24 24"><path d="M4 13h6V4H4zm0 7h6v-5H4zm10 0h6v-9h-6zm0-16v5h6V4z"/></svg><span>Overview</span></a>
+      <a href="#network" data-view="network" class="nav-link"><svg viewBox="0 0 24 24"><path d="M12 18.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3M2.1 8.6a14.5 14.5 0 0 1 19.8 0l-1.4 1.4a12.5 12.5 0 0 0-17 0zm3.5 3.5a9.5 9.5 0 0 1 12.8 0L17 13.5a7.5 7.5 0 0 0-10 0zm3.5 3.5a4.5 4.5 0 0 1 5.8 0l-1.4 1.4a2.5 2.5 0 0 0-3 0z"/></svg><span>Network</span></a>
+      <a href="#sketch" data-view="sketch" class="nav-link"><svg viewBox="0 0 24 24"><path d="M9 3h6v2h2a2 2 0 0 1 2 2v2h2v2h-2v2h2v2h-2v2a2 2 0 0 1-2 2h-2v2h-2v-2h-2v2H9v-2H7a2 2 0 0 1-2-2v-2H3v-2h2v-2H3V9h2V7a2 2 0 0 1 2-2h2zm-2 4v10h10V7z"/></svg><span>Sketch</span></a>
+      <a href="#bridge" data-view="bridge" class="nav-link"><svg viewBox="0 0 24 24"><path d="M7 7h10v2H7zm0 4h10v2H7zm0 4h6v2H7zM4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1m1 2v14h14V5z"/></svg><span>Bridge</span></a>
+      <a href="#settings" data-view="settings" class="nav-link"><svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8m0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4M10.7 2h2.6l.5 2.6 1.6.7 2.2-1.5 1.8 1.8-1.5 2.2.7 1.6 2.6.5v2.6l-2.6.5-.7 1.6 1.5 2.2-1.8 1.8-2.2-1.5-1.6.7-.5 2.6h-2.6l-.5-2.6-1.6-.7-2.2 1.5-1.8-1.8 1.5-2.2-.7-1.6-2.6-.5v-2.6l2.6-.5.7-1.6-1.5-2.2 1.8-1.8 2.2 1.5 1.6-.7z"/></svg><span>Settings</span></a>
+      <div class="sidebar-foot">
+        <button class="btn btn-ghost btn-block" id="logout">Sign out</button>
+      </div>
+    </nav>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <h1 id="board-name">Arduino</h1>
+          <p class="muted" id="board-sub">Arduino Yún</p>
+        </div>
+        <div class="topbar-right">
+          <span class="pill" id="conn-pill"><span class="dot"></span><span>Connecting…</span></span>
+        </div>
+      </header>
+
+      <!-- Overview -->
+      <section class="view" data-view="overview">
+        <div class="grid">
+          <article class="card span-2 hero">
+            <div class="hero-main">
+              <div class="stat">
+                <span class="stat-label">Uptime</span>
+                <span class="stat-value" id="ov-uptime">–</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Firmware</span>
+                <span class="stat-value" id="ov-firmware">–</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Bridge</span>
+                <span class="stat-value" id="ov-bridge">–</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Load</span>
+                <span class="stat-value" id="ov-load">–</span>
+                <span class="stat-note" id="ov-load-more"></span>
+              </div>
+            </div>
+            <div class="chips" id="ov-addresses"></div>
+          </article>
+
+          <article class="card">
+            <header class="card-head">
+              <h2>Wi-Fi</h2>
+              <span class="badge" id="wifi-badge">–</span>
+            </header>
+            <div class="signal-row">
+              <div class="signal" id="wifi-signal" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+              <div>
+                <div class="big" id="wifi-ssid">–</div>
+                <div class="muted small" id="wifi-detail">–</div>
+              </div>
+            </div>
+            <dl class="kv" id="wifi-kv"></dl>
+            <div class="card-actions">
+              <a class="btn" href="#network">Change network</a>
+            </div>
+          </article>
+
+          <article class="card">
+            <header class="card-head">
+              <h2>Ethernet</h2>
+              <span class="badge" id="eth-badge">–</span>
+            </header>
+            <dl class="kv" id="eth-kv"></dl>
+          </article>
+
+          <article class="card">
+            <header class="card-head"><h2>Memory</h2><span class="muted small" id="mem-text"></span></header>
+            <div class="meter"><span id="mem-bar"></span></div>
+            <canvas class="spark" id="mem-spark" height="60" aria-label="Memory use over the last few minutes"></canvas>
+          </article>
+
+          <article class="card">
+            <header class="card-head"><h2>Storage</h2></header>
+            <div id="storage-list" class="storage-list"></div>
+          </article>
+
+          <article class="card span-2">
+            <header class="card-head">
+              <h2>Quick upload</h2>
+              <a class="small" href="#sketch">More options</a>
+            </header>
+            <label class="dropzone" data-drop>
+              <input type="file" accept=".hex" hidden>
+              <strong>Drop a compiled sketch (.hex) here</strong>
+              <span class="muted small">or click to choose a file. In the Arduino IDE use Sketch → Export Compiled Binary.</span>
+            </label>
+          </article>
+        </div>
+      </section>
+
+      <!-- Network -->
+      <section class="view" data-view="network" hidden>
+        <div class="grid">
+          <article class="card span-2">
+            <header class="card-head">
+              <h2>Wi-Fi networks</h2>
+              <button class="btn" id="scan-btn">Scan</button>
+            </header>
+            <p class="muted small" id="scan-hint">The Yún joins one network as a client. While it's in setup mode, it runs its own open network instead.</p>
+            <ul class="networks" id="scan-list"></ul>
+            <form class="join-form" id="join-form" hidden>
+              <h3 id="join-title">Join network</h3>
+              <label class="field"><span>Network name</span><input id="join-ssid" required></label>
+              <label class="field"><span>Security</span>
+                <select id="join-enc">
+                  <option value="sae-mixed">WPA2/WPA3 Personal</option>
+                  <option value="psk2">WPA2 Personal</option>
+                  <option value="sae">WPA3 Personal</option>
+                  <option value="psk-mixed">WPA/WPA2 Personal</option>
+                  <option value="none">None (open)</option>
+                </select>
+              </label>
+              <label class="field" id="join-key-field"><span>Password</span><input id="join-key" type="password" minlength="8" autocomplete="off"></label>
+              <p class="muted small">The Yún will drop off this network while it switches. If it can't join within a minute after rebooting, it goes back to setup mode.</p>
+              <div class="card-actions">
+                <button class="btn btn-primary" type="submit">Join</button>
+                <button class="btn btn-ghost" type="button" id="join-cancel">Cancel</button>
+              </div>
+            </form>
+          </article>
+          <article class="card">
+            <header class="card-head"><h2>Setup mode</h2></header>
+            <p class="muted">Turn the Yún back into an open access point called <strong id="ap-ssid">Arduino Yun</strong>, reachable at <code>192.168.240.1</code>. Holding WLAN RST for 5 seconds does the same.</p>
+            <div class="card-actions"><button class="btn btn-danger" id="ap-btn">Switch to setup mode</button></div>
+          </article>
+          <article class="card">
+            <header class="card-head"><h2>Ethernet</h2></header>
+            <p class="muted">The Ethernet port gets its address from your router (DHCP).</p>
+            <dl class="kv" id="eth-kv-2"></dl>
+          </article>
+        </div>
+      </section>
+
+      <!-- Sketch -->
+      <section class="view" data-view="sketch" hidden>
+        <div class="grid">
+          <article class="card span-2">
+            <header class="card-head"><h2>Upload a sketch</h2></header>
+            <label class="dropzone" data-drop>
+              <input type="file" accept=".hex" hidden>
+              <strong>Drop a compiled sketch (.hex) here</strong>
+              <span class="muted small">It's written to the ATmega32U4 over SPI, together with the Yún bootloader. The board keeps its Wi-Fi and Linux side running.</span>
+            </label>
+            <div class="progress" id="flash-progress" hidden>
+              <div class="progress-head"><span id="flash-step">Uploading…</span><span id="flash-pct"></span></div>
+              <div class="meter"><span id="flash-bar"></span></div>
+            </div>
+            <details class="log" id="flash-log-wrap" hidden><summary>avrdude output</summary><pre id="flash-log"></pre></details>
+          </article>
+          <article class="card">
+            <header class="card-head"><h2>Microcontroller</h2></header>
+            <dl class="kv">
+              <dt>Chip</dt><dd>ATmega32U4</dd>
+              <dt>Bootloader</dt><dd>Caterina (Yún)</dd>
+              <dt>Bridge</dt><dd id="mcu-bridge">–</dd>
+            </dl>
+            <div class="card-actions"><button class="btn" id="reset-mcu">Restart sketch</button></div>
+          </article>
+          <article class="card">
+            <header class="card-head"><h2>From the Arduino IDE</h2></header>
+            <p class="muted">Pick <strong>Arduino Yún</strong> as the board and this Yún under <em>Port → Network ports</em>. Uploads go over SSH with the root password.</p>
+          </article>
+        </div>
+      </section>
+
+      <!-- Bridge -->
+      <section class="view" data-view="bridge" hidden>
+        <div class="grid">
+          <article class="card span-2">
+            <header class="card-head">
+              <h2>Datastore</h2>
+              <span class="muted small">Values the sketch shares with <code>Bridge.put()</code>, live</span>
+            </header>
+            <table class="table">
+              <thead><tr><th>Key</th><th>Value</th><th></th></tr></thead>
+              <tbody id="ds-body"><tr><td colspan="3" class="muted">No values yet</td></tr></tbody>
+            </table>
+            <form class="inline-form" id="ds-form">
+              <input id="ds-key" placeholder="Key" required>
+              <input id="ds-value" placeholder="Value">
+              <button class="btn" type="submit">Put</button>
+            </form>
+          </article>
+          <article class="card">
+            <header class="card-head"><h2>Mailbox</h2></header>
+            <p class="muted small">Send a message the sketch reads with <code>Mailbox.readMessage()</code>.</p>
+            <form class="inline-form" id="mb-form">
+              <input id="mb-text" placeholder="Message" required>
+              <button class="btn" type="submit">Send</button>
+            </form>
+          </article>
+          <article class="card">
+            <header class="card-head"><h2>REST API</h2></header>
+            <p class="muted small">Sketches using <code>BridgeServer</code> answer at:</p>
+            <ul class="endpoints" id="rest-list"></ul>
+          </article>
+        </div>
+      </section>
+
+      <!-- Settings -->
+      <section class="view" data-view="settings" hidden>
+        <div class="grid">
+          <article class="card">
+            <header class="card-head"><h2>Board</h2></header>
+            <form id="board-form">
+              <label class="field"><span>Name</span><input id="set-hostname" pattern="[A-Za-z0-9][A-Za-z0-9-]{0,62}" required></label>
+              <label class="field"><span>Time zone</span><select id="set-zone"></select></label>
+              <label class="switch-row">
+                <span><strong>Protect the REST API</strong><br><span class="muted small">Ask for the password on /arduino, /data and /mailbox.</span></span>
+                <input type="checkbox" id="set-rest" class="switch">
+              </label>
+              <div class="card-actions"><button class="btn btn-primary" type="submit">Save</button></div>
+            </form>
+          </article>
+          <article class="card">
+            <header class="card-head"><h2>Password</h2></header>
+            <form id="pw-form">
+              <label class="field"><span>New password</span><input type="password" id="pw1" minlength="8" autocomplete="new-password" required></label>
+              <label class="field"><span>Repeat</span><input type="password" id="pw2" minlength="8" autocomplete="new-password" required></label>
+              <div class="card-actions"><button class="btn btn-primary" type="submit">Change password</button></div>
+            </form>
+          </article>
+          <article class="card">
+            <header class="card-head"><h2>Firmware</h2><span class="badge" id="fw-badge" hidden></span></header>
+            <dl class="kv" id="fw-kv"></dl>
+            <div class="card-actions">
+              <button class="btn" id="fw-check">Check for updates</button>
+              <button class="btn btn-primary" id="fw-apply" hidden>Install update</button>
+            </div>
+          </article>
+          <article class="card">
+            <header class="card-head"><h2>Power</h2></header>
+            <p class="muted">Restarts Linux. The sketch keeps running, but loses its Bridge connection until Linux is back.</p>
+            <div class="card-actions"><button class="btn btn-danger" id="reboot">Restart</button></div>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+</div>
+<script src="yun/app.js"></script>
+</body>
+</html>
