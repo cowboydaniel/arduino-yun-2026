@@ -1,6 +1,6 @@
 # Design and findings
 
-This page records what we know about the Yún, and how the in-place update is meant to work. Nothing here has been tested on hardware yet.
+This page records what we know about the Yún, and how the in-place update is meant to work. The facts about the stock board come from probes of a real Yún (see the files linked below); the new firmware itself hasn't run on hardware yet.
 
 ## Requirements
 
@@ -47,7 +47,9 @@ mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,14656k(rootfs),1280k(kernel),64
 | 0xfe0000 | 64k | nvram |
 | 0xff0000 | 64k | art (Wi-Fi calibration, MAC) |
 
-- The stock U-Boot (1.1.4) boots with `bootm 0x9fea0000`, so it always starts the uImage at 0xea0000. This value is compiled in (`CONFIG_BOOTCOMMAND` in `uboot-linino/patches/005-linino-16M.patch`), and the board has no saved U-Boot environment (`fw_printenv` fails).
+- The stock U-Boot (1.1.4) boots with `bootm 0x9fea0000`, so it always starts the uImage at 0xea0000. The board does have a saved environment in `u-boot-env` (its CRC matches, see [`uboot-env.txt`](uboot-env.txt)); `fw_printenv` just isn't set up for it. The saved `bootcmd` is the same `bootm 0x9fea0000`, the console runs at 250000 baud, and autoboot is stopped by typing `lin` ([`uboot-boot-capture.txt`](uboot-boot-capture.txt)).
+- U-Boot verifies the uImage CRC, then unpacks an lzma kernel to 0x80060000 and jumps there. U-Boot itself lives at the top of RAM (0x83fc8000, boot params from 0x83f77fb0), so the loader's relocation to 0x81800000 doesn't collide with it.
+- The saved `bootargs` are ignored by the new kernel, which takes its command line from the device tree.
 - u-boot and u-boot-env are read-only from Linux, so the bootloader can't be changed in place. It shouldn't be anyway.
 - The modern kernel (~2.6 MB) doesn't fit in the 1280k kernel slot.
 
@@ -64,6 +66,15 @@ Other details from the same board (full output in [`stock-linino-probe.txt`](sto
 | dropbear | 2015.67, with RSA and DSS host keys only |
 
 The 2015 CA bundle means HTTPS downloads on stock firmware will probably fail against current servers. The migration should expect the image to be uploaded from a PC.
+
+From the second probe ([`yun-probe2.txt`](yun-probe2.txt)):
+
+- The flash is a Winbond W25Q128 (16 MB). The stock kernel uImage is lzma, loaded and started at 0x80060000.
+- The ISP lines to the 32U4 are GPIO 18 (reset, inverted), 11 (SCK), 27 (MOSI) and 8 (MISO); GPIO 21 enables the SPI level shifter. Stock drives them through a `spi-gpio` device and avrdude's `linuxspi`; the new firmware uses avrdude's `linuxgpio` with libgpiod on the same pins, which needs no kernel changes.
+- The UART level shifter enable (GPIO 23) is driven low, as the upstream device tree does.
+- The console is `::askconsole:/bin/ash --login` with no password, which is how `Bridge.begin()` gets a shell to type `run-bridge` into. The kernel console log level is 7.
+- The stock network roles are `lan` = Wi-Fi (client with DHCP, or the setup access point) and `wan` = the Ethernet jack (DHCP). Stock Linux calls the jack `eth1`; the new kernel calls it `eth0`.
+- The probed board keeps its root filesystem on an SD card (extroot) with a swap file there, and has about 12 MB of RAM free.
 
 ### How stock sysupgrade works
 
@@ -108,36 +119,38 @@ The build produces two images:
 The changes to OpenWrt are in [`openwrt/patches/0001-ath79-add-arduino-yun-2026-layout.patch`](../openwrt/patches/0001-ath79-add-arduino-yun-2026-layout.patch):
 
 - new `dts/ar9331_arduino_yun-2026.dts`, a copy of the upstream Yún device tree with the new partitions
-- `Device/arduino_yun-2026` in `image/generic.mk`
-- `arduino,yun-2026` added next to `arduino,yun` in `board.d/02_network` and `uboot-envtools`
+- `Device/arduino_yun-2026` in `image/generic.mk`, with a `pad-to-ff` step so the gap between the rootfs and the loader is erased flash (0xff) rather than zeros
+- `arduino,yun-2026` in `board.d/02_network` (the Ethernet jack is a DHCP client, `wan`, with the stock MAC; not upstream's 192.168.1.1 LAN with a DHCP server) and in `uboot-envtools`
+- `u-boot-env` is read-only as well as `u-boot`
+
+[`tools/check-image.py`](../tools/check-image.py) checks a built `linino-upgrade.bin` against all of the above before it goes near a board.
 
 ### Safety
 
-U-Boot is never written, so a failed update can always be recovered. The recovery is to use YunSerialTerminal over the Yún's USB port, stop in U-Boot and TFTP an image, as described on the [OpenWrt wiki page](https://openwrt.org/toh/arduino.cc/yun).
+U-Boot is never written, so a failed update can always be recovered: stop in U-Boot over YunSerialTerminal and write back a backup over TFTP. [`recovery.md`](recovery.md) has the exact steps, and a rehearsal that changes nothing.
 
-## Update flow (planned)
+## Update flow
 
-From stock Linino (a one-time migration):
+From stock Linino, once ([`tools/yun-migrate`](../tools/yun-migrate)):
 
-1. A `yun-migrate` script runs on stock Linino. It gets the image into `/tmp`, checks its checksum, and builds a small config archive with only the settings to keep.
-2. It runs `sysupgrade -f /tmp/yun-settings.tgz /tmp/linino-upgrade.bin`.
-3. On first boot, a `uci-defaults` script in the new image turns the saved settings into 25.12 UCI config.
+1. Copy `yun-migrate` and `linino-upgrade.bin` to `/tmp` on the Yún (scp, from a PC).
+2. `sh /tmp/yun-migrate /tmp/linino-upgrade.bin <sha256>` checks the board, its flash layout and the image, saves the settings worth keeping into a small archive, and runs `sysupgrade -f <archive> <image>`. `-t` does everything except flash.
+3. On first boot, preinit unpacks the archive and `95-yun-migrate` turns it into the new configuration: hostname, time zone, Wi-Fi network and country, static addresses, the root password hash, the RSA host key and authorized keys, and the REST API setting.
 
-On the new firmware:
+On the new firmware, `yun-update` (also behind the panel's firmware card) downloads the latest release's `sysupgrade.bin` from GitHub, checks it against the release's `SHA256SUMS` and installs it, keeping settings.
 
-- A `yun-update` command downloads and checks the image, keeps the settings, and applies it at the next reboot.
-- Arduino packages update separately with `apk`.
+## Arduino software
 
-## Arduino software to port
+The packages are in [`feed/`](../feed), built into the image by `scripts/build.sh`:
 
-The original sources are in [arduino/openwrt-packages-yun](https://github.com/arduino/openwrt-packages-yun) (`arduino/`) and [arduino/YunBridge](https://github.com/arduino/YunBridge).
-
-| Original | Notes |
+| Package | What it is |
 | --- | --- |
-| `cpu-mcu-bridge` (YunBridge, ~2,400 lines of Python 2) | Port to Python 3. It lived in `/usr/lib/python2.7/bridge`. |
-| `yun-scripts`: `run-bridge`, `kill-bridge` | `Bridge.begin()` on the 32U4 sends `run-bridge` to the login shell on `ttyATH0`. |
-| `yun-scripts`: `reset-mcu` | Pulses GPIO 18. With kernel 6.12, sysfs GPIO numbers have a chip base offset, so use a named export or libgpiod. |
-| `yun-scripts`: `run-avrdude`, `merge-sketch-with-bootloader.lua` | Used by the IDE's Wi-Fi upload. It uses avrdude `linuxgpio` and turns on `yun:oe:spi` (GPIO 21). OpenWrt packages has avrdude 7.3 built with libgpiod. |
-| `yun-conf`: `/etc/avahi/services/arduino.service` | mDNS `_arduino._tcp`, `board=yun`, for IDE network discovery. Consider `umdns` instead of avahi to save flash. |
-| `yun-scripts`: Wi-Fi reset button handling | 5 s press resets Wi-Fi, 30 s press does a factory reset. |
-| `luci-app-arduino-webpanel` | The web panel for Wi-Fi setup. Rewrite for current LuCI or keep it separate. |
+| `yun-bridge` | YunBridge ported to Python 3 (`python3-light`). Same serial protocol and ports, so sketches work unchanged; also fixes several crashes and hangs in the original. |
+| `yun-base` | `run-avrdude`, `merge-sketch-with-bootloader.lua` (now a shell script), `reset-mcu`, the WLAN RST button (5 s: setup mode, 30 s: factory reset), `yun-wifi` (setup access point, Wi-Fi client, and falling back to the access point when the network is gone at boot), `_arduino._tcp` over umdns for the IDE, `yun-update` and the first-boot scripts. |
+| `yun-webpanel` | The Yún Panel at `/` (an rpcd ucode plugin behind a static page), and the stock REST API (`/arduino`, `/data`, `/mailbox`) as a uhttpd ucode handler. |
+
+The network setup: `wan` is the Ethernet jack (DHCP), `lan` is the setup access point (192.168.240.1, open, "Arduino Yun-<MAC>"), and `wwan` is the Wi-Fi client. The firewall accepts connections from `wan` and `wwan`, like the stock firmware, because the Yún is a device on someone's network rather than a router.
+
+## Original sources
+
+The original sources are in [arduino/openwrt-packages-yun](https://github.com/arduino/openwrt-packages-yun) (`arduino/`), [arduino/YunBridge](https://github.com/arduino/YunBridge) and [arduino/YunWebUI](https://github.com/arduino/YunWebUI).
