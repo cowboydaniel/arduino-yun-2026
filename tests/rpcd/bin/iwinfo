@@ -1,49 +1,32 @@
 #!/bin/sh
-# Fake iwinfo, printing in the format of the iwinfo command line tool.
-case "$2" in
+# Fake "iwinfo -j <dev> <cmd>", printing the JSON the ucode iwinfo in
+# OpenWrt 25.12's wifi-scripts prints (see its usr/share/ucode/iwinfo.uc).
+[ "$1" = -j ] || { echo "the Yun Panel only uses iwinfo -j" >&2; exit 1; }
+case "$3" in
 info) cat <<'X'
-wlan0     ESSID: "Workshop"
-          Access Point: 11:22:33:44:55:66
-          Mode: Client  Channel: 6 (2.437 GHz)  HT Mode: HT20
-          Center Channel 1: 6 2: unknown
-          Tx-Power: 17 dBm  Link Quality: 49/70
-          Signal: -61 dBm  Noise: -95 dBm
-          Bit Rate: 65.0 MBit/s
-          Encryption: WPA2 PSK (CCMP)
-          Type: nl80211  HW Mode(s): 802.11bgn
+[ { "iface": "lo", "ssid": "Workshop", "mac": "90:A2:DA:F0:54:D2", "mode": "Client",
+    "channel": 6, "freq": "2.437", "htmode": "HT20", "txpower": 17, "noise": -95,
+    "signal": -61, "bitrate": "65.0", "encryption": "WPA2-PSK (CCMP)", "quality": 49,
+    "hwmode": "bgn", "phy": "phy0" } ]
+X
+;;
+assoclist) cat <<'X'
+{ "11:22:33:44:55:66": { "mac": "11:22:33:44:55:66", "signal": -61, "noise": -95, "snr": 34 } }
 X
 ;;
 scan) cat <<'X'
-Cell 01 - Address: 11:22:33:44:55:66
-          ESSID: "Workshop"
-          Mode: Master  Channel: 6
-          Signal: -61 dBm  Quality: 49/70
-          Encryption: WPA2 PSK (CCMP)
-
-Cell 02 - Address: AA:BB:CC:DD:EE:FF
-          ESSID: "Cafe <b>Guest</b>"
-          Mode: Master  Channel: 11
-          Signal: -80 dBm  Quality: 30/70
-          Encryption: none
-
-Cell 03 - Address: 00:00:00:00:00:01
-          ESSID: "Newer"
-          Mode: Master  Channel: 1
-          Signal: -70 dBm  Quality: 40/70
-          Encryption: mixed WPA2/WPA3 PSK/SAE (CCMP)
-
-Cell 04 - Address: 00:00:00:00:00:02
-          ESSID: "Office"
-          Mode: Master  Channel: 1
-          Signal: -70 dBm  Quality: 40/70
-          Encryption: WPA2 802.1X (CCMP)
-
-Cell 05 - Address: 00:00:00:00:00:03
-          ESSID: unknown
-          Mode: Master  Channel: 3
-          Signal: -75 dBm  Quality: 35/70
-          Encryption: WPA2 PSK (CCMP)
+[
+ { "bssid": "11:22:33:44:55:66", "ssid": "Workshop", "channel": 6, "dbm": -61, "quality": 49, "mode": "Master",
+   "crypto": { "group": "CCMP", "pair": [ "CCMP" ], "key_mgmt": [ "WPA PSK" ] } },
+ { "bssid": "AA:BB:CC:DD:EE:FF", "ssid": "Cafe <b>Guest</b>", "channel": 11, "dbm": -80, "quality": 30, "mode": "Master" },
+ { "bssid": "00:00:00:00:00:01", "ssid": "Newer", "channel": 1, "dbm": -70, "quality": 40, "mode": "Master",
+   "crypto": { "group": "CCMP", "pair": [ "CCMP" ], "key_mgmt": [ "WPA PSK", "SAE" ] } },
+ { "bssid": "00:00:00:00:00:02", "ssid": "Office", "channel": 1, "dbm": -70, "quality": 40, "mode": "Master",
+   "crypto": { "group": "CCMP", "pair": [ "CCMP" ], "key_mgmt": [ "802.1x" ] } },
+ { "bssid": "00:00:00:00:00:03", "channel": 3, "dbm": -75, "quality": 35, "mode": "Master",
+   "crypto": { "group": "CCMP", "pair": [ "CCMP" ], "key_mgmt": [ "WPA PSK" ] } }
+]
 X
 ;;
-assoclist) printf '11:11:11:11:11:11  -50 dBm / -95 dBm (SNR 45)  10 ms ago\n' ;;
+*) exit 1 ;;
 esac

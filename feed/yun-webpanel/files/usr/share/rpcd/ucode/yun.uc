@@ -3,9 +3,10 @@
 //
 // The "yun" ubus object behind the Yun Panel (/www/yun/app.js).
 //
-// Wi-Fi details come from the iwinfo command line tool rather than the
-// iwinfo ubus object, because that object lives in rpcd itself and calling
-// it from here would block on ourselves.
+// Wi-Fi details come from the iwinfo command line tool's JSON output (the
+// ucode one in wifi-scripts) rather than the iwinfo ubus object, because
+// that object lives in rpcd itself and calling it from here would block on
+// ourselves.
 
 'use strict';
 
@@ -112,13 +113,12 @@ function netdev(ifname) {
 	};
 }
 
-// iwinfo prints e.g. "WPA2 PSK (CCMP)" or "mixed WPA2/WPA3 PSK/SAE (CCMP)".
+// wpa_supplicant's key management for the network we're on, e.g. "WPA2-PSK"
+// or "WPA2-PSK SAE".
 function encryption_of(text) {
 	text = lc(text ?? '');
 	if (text == '' || text == 'none' || text == 'unknown')
 		return 'none';
-	if (index(text, 'wep') >= 0)
-		return 'wep';
 	if (index(text, '802.1x') >= 0 || index(text, 'eap') >= 0)
 		return 'eap';
 	let sae = index(text, 'sae') >= 0, psk = index(text, 'psk') >= 0;
@@ -126,40 +126,55 @@ function encryption_of(text) {
 		return 'sae-mixed';
 	if (sae)
 		return 'sae';
-	if (index(text, 'wpa/wpa2') >= 0)
-		return 'psk-mixed';
-	if (index(text, 'wpa2') >= 0)
+	if (index(text, 'wpa2') >= 0 || index(text, 'rsn') >= 0)
 		return 'psk2';
 	return 'psk';
 }
 
+// A scanned network's RSN key management list, e.g. [ "WPA PSK", "SAE" ].
+function scan_encryption(crypto) {
+	let keys = crypto?.key_mgmt ?? [];
+	if (!length(keys))
+		return 'none';
+	let sae = false, psk = false, eap = false;
+	for (let k in keys) {
+		k = lc(k);
+		if (index(k, 'sae') >= 0) sae = true;
+		else if (index(k, 'psk') >= 0) psk = true;
+		else if (index(k, '802.1x') >= 0 || index(k, 'fils') >= 0) eap = true;
+	}
+	if (sae && psk) return 'sae-mixed';
+	if (sae) return 'sae';
+	if (psk) return 'psk2';
+	return eap ? 'eap' : 'none';
+}
+
+// iwinfo's link quality is 0..70.
 function quality_pct(q) {
-	let m = match(q ?? '', /^(\d+)\/(\d+)$/);
-	return m ? int(+m[1] * 100 / +m[2]) : null;
+	return q != null ? int(+q * 100 / 70) : null;
+}
+
+function iwinfo_json(ifname, cmd) {
+	if (!match(ifname ?? '', /^[A-Za-z0-9._-]+$/))
+		return null;
+	let r = run(`iwinfo -j ${ifname} ${cmd}`);
+	return r.code == 0 ? json(r.output) : null;
 }
 
 function iwinfo_info(ifname) {
-	let info = {};
-	let p = popen(`iwinfo ${ifname} info 2>/dev/null`, 'r');
-	if (!p)
-		return info;
-	for (let line = p.read('line'); length(line); line = p.read('line')) {
-		let m;
-		if ((m = match(line, /ESSID: "(.*)"/)))
-			info.ssid = m[1];
-		if ((m = match(line, /Access Point: ([0-9A-F:]{17})/)))
-			info.bssid = m[1];
-		if ((m = match(line, /Channel: (\d+)/)))
-			info.channel = +m[1];
-		if ((m = match(line, /Signal: (-?\d+) dBm/)))
-			info.signal = +m[1];
-		if ((m = match(line, /Link Quality: (\d+\/\d+)/)))
-			info.quality = quality_pct(m[1]);
-		if ((m = match(line, /Encryption: (.*)$/)))
-			info.encryption = encryption_of(trim(m[1]));
-	}
-	p.close();
-	return info;
+	let bss = iwinfo_json(ifname, 'info')?.[0];
+	if (!bss)
+		return {};
+	let stations = iwinfo_json(ifname, 'assoclist') ?? {};
+	return {
+		ssid: bss.ssid,
+		channel: bss.channel != null ? +bss.channel : null,
+		signal: bss.signal ? int(bss.signal) : null,
+		quality: quality_pct(bss.quality),
+		encryption: encryption_of(bss.encryption),
+		// A client lists the access point it's connected to here.
+		stations: length(keys(stations)),
+	};
 }
 
 function wifi_ifaces() {
@@ -261,7 +276,7 @@ const methods = {
 				ifname: wifname,
 				ssid: info.ssid ?? uci.get('wireless', client ? 'yun_sta' : 'yun_ap', 'ssid'),
 				ap_ssid: uci.get('wireless', 'yun_ap', 'ssid'),
-				connected: client ? (info.bssid != null && info.bssid != '00:00:00:00:00:00') : true,
+				connected: client ? (info.stations ?? 0) > 0 : true,
 				signal: client ? info.signal : null,
 				quality: client ? info.quality : null,
 				channel: info.channel,
@@ -269,10 +284,8 @@ const methods = {
 				ipv4: ipv4_of(wst),
 				...netdev(wifname),
 			};
-			if (!client && wifname) {
-				let r = run(`iwinfo ${wifname} assoclist | grep -c dBm`);
-				wifi.clients = +trim(r.output) || 0;
-			}
+			if (!client)
+				wifi.clients = info.stations ?? 0;
 			delete wifi.carrier;
 
 			let est = netifd_status('wan');
@@ -315,29 +328,16 @@ const methods = {
 			if (!dev)
 				return { error: 'Wi-Fi is not running' };
 
-			let results = [], cur = null;
-			let p = popen(`iwinfo ${dev} scan 2>/dev/null`, 'r');
-			for (let line = p?.read('line'); length(line); line = p.read('line')) {
-				let m;
-				if (match(line, /^Cell /)) {
-					if (cur) push(results, cur);
-					cur = { bssid: match(line, /Address: ([0-9A-F:]{17})/)?.[1] };
-				}
-				else if (!cur)
-					continue;
-				else if ((m = match(line, /ESSID: "(.*)"/)))
-					cur.ssid = m[1];
-				else if ((m = match(line, /Channel: (\d+)/)))
-					cur.channel = +m[1];
-				if (cur && (m = match(line, /Signal: (-?\d+) dBm\s+Quality: (\d+\/\d+)/))) {
-					cur.signal = +m[1];
-					cur.quality = quality_pct(m[2]);
-				}
-				if (cur && (m = match(line, /Encryption: (.*)$/)))
-					cur.encryption = encryption_of(trim(m[1]));
-			}
-			if (cur) push(results, cur);
-			p?.close();
+			let results = [];
+			for (let cell in iwinfo_json(dev, 'scan') ?? [])
+				push(results, {
+					bssid: cell.bssid,
+					ssid: cell.ssid,
+					channel: cell.channel,
+					signal: cell.dbm,
+					quality: quality_pct(cell.quality),
+					encryption: scan_encryption(cell.crypto),
+				});
 			return { results: filter(results, r => r.ssid != null && r.ssid != '' && r.encryption != 'eap') };
 		}
 	},
