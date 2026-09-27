@@ -37,6 +37,7 @@
         throw err;
       }
       if (status !== 0) throw new Error(`${object}.${method} failed (${status})`);
+      if (data && data.error) throw new Error(data.error);
       return data || {};
     },
 

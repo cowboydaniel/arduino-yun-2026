@@ -1,0 +1,22 @@
+{
+	"yun-panel": {
+		"description": "Yun Panel",
+		"read": {
+			"ubus": {
+				"yun": [ "status", "wifi_scan", "bridge_data", "update_check" ]
+			}
+		},
+		"write": {
+			"ubus": {
+				"yun": [ "wifi_client", "wifi_setup_ap", "sketch_flash", "mcu_reset",
+				         "bridge_put", "bridge_delete", "mailbox_send", "settings_set",
+				         "password_set", "update_apply" ],
+				"system": [ "reboot" ]
+			},
+			"cgi-io": [ "upload" ],
+			"file": {
+				"/tmp/sketch.hex": [ "write" ]
+			}
+		}
+	}
+}

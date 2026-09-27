@@ -1,0 +1,2 @@
+#!/bin/sh
+echo "yun-wifi $*" >> "$CALL_LOG"
