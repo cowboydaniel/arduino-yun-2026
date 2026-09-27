@@ -13,7 +13,7 @@ The Linux side shipped with Linino, an OpenWrt-based firmware that hasn't been u
 ## Goals
 
 - Run a current OpenWrt release with an up-to-date kernel and security fixes
-- Install packages from the official OpenWrt feeds with `opkg`
+- Install packages from the official OpenWrt feeds with `apk`
 - Keep the Bridge library working, so existing sketches run unchanged
 - Upload sketches over Wi-Fi from the Arduino IDE
 - Set up Wi-Fi from the Yún web panel

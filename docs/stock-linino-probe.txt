@@ -1,0 +1,67 @@
+/lib/upgrade:
+allnet.sh
+common.sh
+dir825.sh
+keep.d
+luci-add-conffiles.sh
+openmesh.sh
+platform.sh
+
+/lib/upgrade/keep.d:
+base-files
+base-files-essential
+opkg
+ppp
+uboot-envtools
+uhttpd
+U-Boot 1.1.4-linino-gca1b422d-dirty (Sep 15 2014 - 04:07:17)
+Python 2.7.9
+GNU Wget 1.17.1, a non-interactive network retriever.
+Usage: wget [OPTION]... [URL]...
+/usr/bin/curl
+360
+avahi-daemon-service-http - 0.6.31-12
+avahi-daemon-service-ssh - 0.6.31-12
+avahi-dnsconfd - 0.6.31-12
+avahi-nodbus-daemon - 0.6.31-12
+avrdude - 6.3-2
+base-files - 157.2-r48749
+busybox - 1.23.2-1
+ca-certificates - 20150426
+curl - 7.40.0-3
+dropbear - 2015.67-1
+libustream-polarssl - 2015-07-09-c2d73c22618e8ee444e8d346695eca908ecb72d3
+lua - 5.1.5-1
+mtd - 21
+python - 2.7.9-6
+uhttpd - 2015-11-08-fe01ef3f52adae9da38ef47926cd50974af5d6b7
+uhttpd-mod-lua - 2015-11-08-fe01ef3f52adae9da38ef47926cd50974af5d6b7
+uhttpd-mod-ubus - 2015-11-08-fe01ef3f52adae9da38ef47926cd50974af5d6b7
+wget - 1.17.1-1
+system type		: Atheros AR9330 rev 1
+machine			: Arduino Yun
+processor		: 0
+cpu model		: MIPS 24Kc V7.4
+BogoMIPS		: 265.42
+wait instruction	: yes
+authorized_keys
+dropbear_dss_host_key
+dropbear_rsa_host_key
+
+config arduino
+	option secure_rest_api 'true'
+	option socket_timeout '5'
+	option first_configuration '1'
+	option access_point_wifi_name 'Arduino'
+	option usb_autoupdate_sketch 'false'
+	option arduino_avr_uno 'run-avrdude /tmp/sketch.hex '\''-q -q'\''  -patmega328p 2>&1'
+	option arduino_avr_leonardo 'run-avrdude /tmp/sketch.hex '\''-q -q'\'' -pm32u4 2>&1'
+	option arduino_avr_mega 'run-avrdude /tmp/sketch.hex '\''-q -q'\'' -patmega2560 2>&1'
+	option arduino_avr_diecimila 'run-avrdude /tmp/sketch.hex '\''-q -q'\'' -patmega328p 2>&1'
+	option arduino_sam_due 'run-bossac -i -d --port=ttyATH0 -U false -e -w -v -b /tmp/sketch.hex -R'
+	option arduino_sam_zero 'run-bossac -i -d --port=ttyATH0 -U false -e -w -v /tmp/sketch.hex -R'
+	option arduino_avr_yun 'run-avrdude /tmp/sketch.hex '\''-q -q'\'' 2>&1'
+	option default_target 'arduino_yun'
+	option wifi_reset_step 'clear'
+
+(wifi-device, wifi-iface and interface sections omitted: they hold the local Wi-Fi name and password)
