@@ -28,6 +28,7 @@ Don't flash the test Yún until its owner confirms. Follow [docs/recovery.md](do
 - [ ] The Ethernet driver reports "invalid MAC address, using random address" at boot (there's no NVMEM cell for it in the device tree). board.d then sets the right MAC (90:a2:da:f8:54:d2 was seen), but the device tree should give it directly.
 - [ ] The USB LED is on whenever the microSD card is in: the card reader sits on the internal USB hub, and the LED uses the `usbport` trigger. Decide whether that's what we want.
 - [ ] `Bridge.begin()` starts the bridge from the serial console; the Bridge examples (Process, FileIO, HttpClient, Console, Bridge/datastore, Mailbox) work.
+- [x] avrdude 7.3 couldn't read its own config on the Yún (found 2026-09-27): its number parsing and config assignment assume a little-endian CPU, and the AR9331 is big-endian (upstream won't fix it: avrdudes/avrdude#1917). Fixed with `openwrt/feed-patches/packages/utils/avrdude/100-big-endian.patch`, tested under qemu-mips with the image's own avrdude. In v2026.2.
 - [ ] Upload a sketch over Wi-Fi from the Arduino IDE (discovery, SSH, `run-avrdude` over libgpiod).
 - [ ] Upload a `.hex` from the Yún Panel, and the REST API (`/arduino/...`, `/data/...`, `/mailbox/...`) with and without the password.
 - [ ] Wi-Fi: joining from the panel, falling back to setup mode when the network is gone, WLAN RST for 5 s and 30 s.

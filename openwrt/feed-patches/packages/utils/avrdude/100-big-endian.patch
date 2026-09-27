@@ -1,0 +1,51 @@
+Fix reading avrdude.conf on big-endian hosts (such as the AR9331's MIPS)
+
+str_todata() curtailed numbers by reversing only the first size bytes
+of its 8-byte buffer, which on big-endian hosts are the high-order bytes,
+then cleared the rest, where the value was. cfg_assign() stored char and
+short components by copying the first bytes of an int. Both only worked
+on little-endian hosts.
+
+--- a/src/config.c	2026-09-27 21:31:33.829904295 +1000
++++ b/src/config.c	2026-09-27 21:31:33.857576794 +1000
+@@ -907,9 +907,23 @@
+         cp->name, cfg_strct_name(strct), cfg_comp_type(cp->type), cfg_v_type(v->type));
+       return;
+     }
+-    // TODO: consider endianess (code currently assumes little endian)
++    // Store the value as the component's own type: copying the first
++    // cp->size bytes of an int only gives the value on little-endian hosts
+     num = v->number;
+-    memcpy(sp+cp->offset, &num, cp->size);
++    switch(cp->size) {
++    case sizeof(char): {
++      char c = (char) num;
++      memcpy(sp+cp->offset, &c, sizeof c);
++      break;
++    }
++    case sizeof(short): {
++      short s = (short) num;
++      memcpy(sp+cp->offset, &s, sizeof s);
++      break;
++    }
++    default:
++      memcpy(sp+cp->offset, &num, cp->size);
++    }
+     break;
+   case COMP_STRING:
+     if(v->type != V_STR) {
+--- a/src/strutil.c	2026-09-27 21:34:37.044178492 +1000
++++ b/src/strutil.c	2026-09-27 21:34:37.073103365 +1000
+@@ -710,8 +710,10 @@
+       if(sd->sigsz < sd->size)
+         sd->sigsz = sd->size;
+       if(sd->sigsz < 8) {               // Curtail and sign extend the number
+-        if(is_big_endian && sd->size > 1)
+-          change_endian(sd->a, sd->size);
++        // Work on it in little-endian order: on big-endian hosts the low
++        // bytes are at the end of the 8-byte array, not the start
++        if(is_big_endian)
++          change_endian(sd->a, sizeof sd->a);
+         memset(sd->a+sd->sigsz, is_signed && (sd->a[sd->sigsz-1] & 0x80)? 0xff: 0, 8-sd->sigsz);
+         if(is_big_endian)
+           change_endian(sd->a, sizeof sd->a);

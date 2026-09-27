@@ -45,6 +45,16 @@ fi
 cp feeds.conf.default feeds.conf
 echo "src-link arduino $REPO_DIR/feed" >> feeds.conf
 ./scripts/feeds update -a
+
+# Patches for packages from OpenWrt's feeds, laid out like feeds/:
+# openwrt/feed-patches/<feed>/<path to package>/*.patch
+for p in "$REPO_DIR"/openwrt/feed-patches/*/*/*/*.patch; do
+	[ -e "$p" ] || continue
+	rel=${p#"$REPO_DIR"/openwrt/feed-patches/}
+	mkdir -p "feeds/${rel%/*}/patches"
+	cp "$p" "feeds/${rel%/*}/patches/"
+done
+
 ./scripts/feeds install -a
 
 cp "$REPO_DIR/openwrt/config.seed" .config
