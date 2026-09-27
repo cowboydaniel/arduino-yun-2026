@@ -203,5 +203,29 @@ class NetworkSetupTest(unittest.TestCase):
         self.assertEqual(self.uci('wireless.yun_sta.disabled'), '1')
 
 
+    def test_rerun_after_update_keeps_the_setup(self):
+        # sysupgrade keeps /etc/config and the new image runs uci-defaults
+        # again: a board that's a Wi-Fi client with a static address must
+        # stay exactly that.
+        self.first_boot()
+        yun_wifi = os.path.join(BASE, 'usr', 'bin', 'yun-wifi')
+        self.run_script(yun_wifi, 'client', 'Home', 'sae-mixed', 'secret pass')
+        subprocess.run([UCI, '-c', self.conf, 'batch'], input=(
+            "set network.wwan.proto='static'\nset network.wwan.ipaddr='192.168.1.45'\n"
+            "set network.lan.ipaddr='10.9.9.1'\nset wireless.yun_ap.ssid='My setup AP'\ncommit\n"),
+            text=True, check=True)
+        self.first_boot()
+        self.assertEqual(self.uci('wireless.yun_sta.disabled'), '0')
+        self.assertEqual(self.uci('wireless.yun_ap.disabled'), '1')
+        self.assertEqual(self.uci('wireless.yun_sta.ssid'), 'Home')
+        self.assertEqual(self.uci('wireless.yun_sta.encryption'), 'sae-mixed')
+        self.assertEqual(self.uci('wireless.yun_sta.key'), 'secret pass')
+        self.assertEqual(self.uci('wireless.yun_ap.ssid'), 'My setup AP')
+        self.assertEqual(self.uci('network.wwan.proto'), 'static')
+        self.assertEqual(self.uci('network.wwan.ipaddr'), '192.168.1.45')
+        self.assertEqual(self.uci('network.lan.ipaddr'), '10.9.9.1')
+        self.assertEqual(self.uci('arduino.@arduino[0].wifi_state'), 'client')
+
+
 if __name__ == '__main__':
     unittest.main()

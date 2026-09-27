@@ -192,11 +192,20 @@ FAKE_JSONFILTER = r'''#!/usr/bin/env python3
 import json, sys
 a = sys.argv[1:]
 d = json.load(open(a[a.index('-i') + 1]))
-if a[a.index('-e') + 1] == '@.tag_name':
+e = a[a.index('-e') + 1]
+if e == '@.tag_name':
     print(d['tag_name'])
+elif e.endswith('.size'):
+    print(11862289)
 else:
     for x in d['assets']:
         print(x['browser_download_url'])
+'''
+
+FAKE_SYSUPGRADE = '''#!/bin/sh
+echo "sysupgrade $*" >> "$CALLS"
+case "$1" in -T) exit 0 ;; esac
+exit ${SYSUPGRADE_EXIT:-0}
 '''
 
 
@@ -207,22 +216,42 @@ class YunUpdateTest(unittest.TestCase):
         t = self.tmp.name
         b = os.path.join(t, 'bin')
         os.makedirs(b)
+        self.calls = os.path.join(t, 'calls')
         for name, body in (('uclient-fetch', FAKE_FETCH), ('jsonfilter', FAKE_JSONFILTER),
-                           ('sysupgrade', '#!/bin/sh\necho "sysupgrade $*" >> "$LOG"\n')):
+                           ('sysupgrade', FAKE_SYSUPGRADE), ('logger', '#!/bin/sh\n')):
             with open(os.path.join(b, name), 'w') as f:
                 f.write(body)
             os.chmod(os.path.join(b, name), 0o755)
-        os.makedirs(os.path.join(t, 'root', 'etc'))
-        self.release = os.path.join(t, 'root', 'etc', 'yun_release')
+        root = os.path.join(t, 'root')
+        os.makedirs(os.path.join(root, 'etc', 'init.d'))
+        for s in ('uhttpd', 'rpcd', 'umdns', 'cron', 'odhcpd', 'dnsmasq'):
+            path = os.path.join(root, 'etc', 'init.d', s)
+            with open(path, 'w') as f:
+                f.write(f'#!/bin/sh\necho "{s} $1" >> "$CALLS"\n')
+            os.chmod(path, 0o755)
+        self.release = os.path.join(root, 'etc', 'yun_release')
         with open(self.release, 'w') as f:
             f.write("VERSION='2026.1'\n")
-        self.log = os.path.join(t, 'log')
-        self.env = dict(os.environ, PATH=b + os.pathsep + os.environ['PATH'],
-                        ROOT=os.path.join(t, 'root'), LOG=self.log)
+        self.proc = os.path.join(t, 'proc')
+        os.makedirs(os.path.join(self.proc, 'sys', 'vm'))
+        self.set_memory(19636)
+        self.env = dict(os.environ, PATH=b + os.pathsep + os.environ['PATH'], ROOT=root, PROC=self.proc,
+                        CALLS=self.calls, CONSOLE='', YUN_UPDATE_LOG=os.path.join(t, 'update.log'))
+
+    def set_memory(self, available_kb):
+        with open(os.path.join(self.proc, 'meminfo'), 'w') as f:
+            f.write(f'MemTotal:          55624 kB\nMemFree:            3000 kB\nMemAvailable:   {available_kb:8d} kB\n')
 
     def update(self, *args, **env):
         return subprocess.run(['sh', os.path.join(FILES, 'usr', 'bin', 'yun-update'), *args],
                               capture_output=True, text=True, env=dict(self.env, **env))
+
+    def recorded(self):
+        try:
+            with open(self.calls) as f:
+                return f.read().splitlines()
+        except FileNotFoundError:
+            return []
 
     def test_check(self):
         p = self.update('check', '--json')
@@ -232,15 +261,37 @@ class YunUpdateTest(unittest.TestCase):
         self.assertIn('"available":false', self.update('check', '--json').stdout)
         self.assertIn('Up to date', self.update('check').stdout)
 
-    def test_apply_checks_the_download(self):
+    def test_apply_frees_memory_then_installs(self):
         p = self.update('apply')
         self.assertEqual(p.returncode, 0, p.stderr)
-        with open(self.log) as f:
-            self.assertEqual(f.read().splitlines(), ['sysupgrade -T /tmp/yun-update/sysupgrade.bin',
-                                                     'sysupgrade /tmp/yun-update/sysupgrade.bin'])
+        self.assertEqual(self.recorded(), [
+            'uhttpd stop', 'rpcd stop', 'umdns stop', 'cron stop', 'odhcpd stop',
+            'sysupgrade -T /tmp/yun-update/sysupgrade.bin',
+            'dnsmasq stop',        # only after the download, which needs DNS
+            'sysupgrade -v /tmp/yun-update/sysupgrade.bin'])
+        self.assertIn('download verified', p.stdout)
+
+    def test_not_enough_memory(self):
+        self.set_memory(12000)
+        p = self.update('apply')
+        self.assertEqual(p.returncode, 1)
+        self.assertIn('not enough free RAM', p.stderr)
+        calls = self.recorded()
+        self.assertFalse(any(c.startswith('sysupgrade') for c in calls))
+        self.assertEqual(calls[-5:], ['uhttpd start', 'rpcd start', 'umdns start', 'cron start', 'odhcpd start'])
 
     def test_damaged_download_is_not_installed(self):
         p = self.update('apply', IMAGE_DATA='DAMAGED')
         self.assertEqual(p.returncode, 1)
         self.assertIn('damaged', p.stderr)
-        self.assertFalse(os.path.exists(self.log))
+        calls = self.recorded()
+        self.assertFalse(any(c.startswith('sysupgrade') for c in calls))
+        self.assertIn('uhttpd start', calls)             # the panel comes back
+        self.assertFalse(os.path.exists('/tmp/yun-update/sysupgrade.bin'))
+
+    def test_failed_sysupgrade_restarts_services(self):
+        p = self.update('apply', SYSUPGRADE_EXIT='1')
+        self.assertEqual(p.returncode, 1)
+        calls = self.recorded()
+        self.assertIn('dnsmasq start', calls)
+        self.assertIn('uhttpd start', calls)
