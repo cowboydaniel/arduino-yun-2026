@@ -1,0 +1,931 @@
+# Output of the yun-probe2 script on a stock Linino 1.5.3 Yun (2026-09-27).
+# Passwords, keys, the Wi-Fi SSID, the access point MAC, the time zone and the ULA prefix are redacted.
+
+===== /proc/mtd
+dev:    size   erasesize  name
+mtd0: 00040000 00010000 "u-boot"
+mtd1: 00010000 00010000 "u-boot-env"
+mtd2: 00e50000 00010000 "rootfs"
+mtd3: 00500000 00010000 "rootfs_data"
+mtd4: 00140000 00010000 "kernel"
+mtd5: 00010000 00010000 "nvram"
+mtd6: 00010000 00010000 "art"
+mtd7: 00f90000 00010000 "firmware"
+
+===== /proc/cmdline
+ board=YUN console=ttyATH0,250000 mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,14656k(rootfs),1280k(kernel),64k(nvram),64k(art),15936k@0x50000(firmware) root=/dev/mtdblock2 rootfstype=squashfs,jffs2 noinitrd mem=64M rootfstype=squashfs,jffs2 noinitrd
+
+===== dmesg
+[    0.000000] Linux version 3.18.23 (admin@compile-01-prod) (gcc version 4.8.3 (OpenWrt/Linaro GCC 4.8-2014.04 r48749) ) #34 Tue May 10 08:20:13 UTC 2016
+[    0.000000] MyLoader: sysp=750f3537, boardp=13338315, parts=509317f1
+[    0.000000] bootconsole [early0] enabled
+[    0.000000] CPU0 revision is: 00019374 (MIPS 24Kc)
+[    0.000000] SoC: Atheros AR9330 rev 1
+[    0.000000] Determined physical RAM map:
+[    0.000000]  memory: 04000000 @ 00000000 (usable)
+[    0.000000] User-defined physical RAM map:
+[    0.000000]  memory: 04000000 @ 00000000 (usable)
+[    0.000000] Initrd not found or empty - disabling initrd
+[    0.000000] Zone ranges:
+[    0.000000]   Normal   [mem 0x00000000-0x03ffffff]
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x00000000-0x03ffffff]
+[    0.000000] Initmem setup node 0 [mem 0x00000000-0x03ffffff]
+[    0.000000] On node 0 totalpages: 16384
+[    0.000000] free_area_init_node: node 0, pgdat 8039a220, node_mem_map 81000000
+[    0.000000]   Normal zone: 128 pages used for memmap
+[    0.000000]   Normal zone: 0 pages reserved
+[    0.000000]   Normal zone: 16384 pages, LIFO batch:3
+[    0.000000] Primary instruction cache 64kB, VIPT, 4-way, linesize 32 bytes.
+[    0.000000] Primary data cache 32kB, 4-way, VIPT, cache aliases, linesize 32 bytes
+[    0.000000] pcpu-alloc: s0 r0 d32768 u32768 alloc=1*32768
+[    0.000000] pcpu-alloc: [0] 0 
+[    0.000000] Built 1 zonelists in Zone order, mobility grouping on.  Total pages: 16256
+[    0.000000] Kernel command line:  board=YUN console=ttyATH0,250000 mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,14656k(rootfs),1280k(kernel),64k(nvram),64k(art),15936k@0x50000(firmware) root=/dev/mtdblock2 rootfstype=squashfs,jffs2 noinitrd mem=64M rootfstype=squashfs,jffs2 noinitrd
+[    0.000000] PID hash table entries: 256 (order: -2, 1024 bytes)
+[    0.000000] Dentry cache hash table entries: 8192 (order: 3, 32768 bytes)
+[    0.000000] Inode-cache hash table entries: 4096 (order: 2, 16384 bytes)
+[    0.000000] Writing ErrCtl register=00000000
+[    0.000000] Readback ErrCtl register=00000000
+[    0.000000] Memory: 60676K/65536K available (2935K kernel code, 142K rwdata, 332K rodata, 228K init, 201K bss, 4860K reserved)
+[    0.000000] SLUB: HWalign=32, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+[    0.000000] NR_IRQS:51
+[    0.000000] Clocks: CPU:400.000MHz, DDR:400.000MHz, AHB:200.000MHz, Ref:25.000MHz
+[    0.000000] Calibrating delay loop... 265.42 BogoMIPS (lpj=1327104)
+[    0.080000] pid_max: default: 32768 minimum: 301
+[    0.080000] Mount-cache hash table entries: 1024 (order: 0, 4096 bytes)
+[    0.080000] Mountpoint-cache hash table entries: 1024 (order: 0, 4096 bytes)
+[    0.090000] NET: Registered protocol family 16
+[    0.090000] MIPS: machine is Arduino Yun
+[    0.570000] Setting DogStick2 GPIO
+[    0.570000] Switched to clocksource MIPS
+[    0.580000] NET: Registered protocol family 2
+[    0.580000] TCP established hash table entries: 1024 (order: 0, 4096 bytes)
+[    0.580000] TCP bind hash table entries: 1024 (order: 0, 4096 bytes)
+[    0.580000] TCP: Hash tables configured (established 1024 bind 1024)
+[    0.580000] TCP: reno registered
+[    0.580000] UDP hash table entries: 256 (order: 0, 4096 bytes)
+[    0.580000] UDP-Lite hash table entries: 256 (order: 0, 4096 bytes)
+[    0.590000] NET: Registered protocol family 1
+[    0.590000] RPC: Registered named UNIX socket transport module.
+[    0.590000] RPC: Registered udp transport module.
+[    0.590000] RPC: Registered tcp transport module.
+[    0.600000] RPC: Registered tcp NFSv4.1 backchannel transport module.
+[    0.600000] PCI: CLS 0 bytes, default 32
+[    0.600000] futex hash table entries: 256 (order: -1, 3072 bytes)
+[    0.610000] squashfs: version 4.0 (2009/01/31) Phillip Lougher
+[    0.620000] NFS: Registering the id_resolver key type
+[    0.620000] Key type id_resolver registered
+[    0.620000] Key type id_legacy registered
+[    0.620000] jffs2: version 2.2 (NAND) (SUMMARY) (LZMA) (RTIME) (CMODE_PRIORITY) (c) 2001-2006 Red Hat, Inc.
+[    0.640000] msgmni has been set to 118
+[    0.640000] io scheduler noop registered
+[    0.640000] io scheduler deadline registered (default)
+[    0.640000] Serial: 8250/16550 driver, 1 ports, IRQ sharing disabled
+[    0.650000] ar933x-uart: ttyATH0 at MMIO 0x18020000 (irq = 11, base_baud = 1562500) is a AR933X UART
+[    0.650000] console [ttyATH0] enabled
+[    0.650000] bootconsole [early0] disabled
+[    0.660000] m25p80 spi0.0: found w25q128, expected m25p80
+[    0.660000] m25p80 spi0.0: w25q128 (16384 Kbytes)
+[    0.660000] 7 cmdlinepart partitions found on MTD device spi0.0
+[    0.660000] Creating 7 MTD partitions on "spi0.0":
+[    0.670000] 0x000000000000-0x000000040000 : "u-boot"
+[    0.670000] 0x000000040000-0x000000050000 : "u-boot-env"
+[    0.670000] 0x000000050000-0x000000ea0000 : "rootfs"
+[    0.680000] mtd: device 2 (rootfs) set to be root filesystem
+[    0.690000] 1 squashfs-split partitions found on MTD device rootfs
+[    0.690000] 0x0000009a0000-0x000000ea0000 : "rootfs_data"
+[    0.690000] 0x000000ea0000-0x000000fe0000 : "kernel"
+[    0.690000] 0x000000fe0000-0x000000ff0000 : "nvram"
+[    0.700000] 0x000000ff0000-0x000001000000 : "art"
+[    0.700000] 0x000000050000-0x000000fe0000 : "firmware"
+[    0.730000] libphy: ag71xx_mdio: probed
+[    1.320000] ag71xx-mdio.1: Found an AR7240/AR9330 built-in switch
+[    1.350000] eth0: Atheros AG71xx at 0xba000000, irq 5, mode:GMII
+[    1.940000] ag71xx ag71xx.0: connected to PHY at ag71xx-mdio.1:04 [uid=004dd041, driver=Generic PHY]
+[    1.940000] eth1: Atheros AG71xx at 0xb9000000, irq 4, mode:MII
+[    1.940000] TCP: cubic registered
+[    1.950000] NET: Registered protocol family 17
+[    1.950000] bridge: automatic filtering via arp/ip/ip6tables has been deprecated. Update your scripts to load br_netfilter if you need this.
+[    1.950000] 8021q: 802.1Q VLAN Support v1.8
+[    1.960000] Key type dns_resolver registered
+[    1.970000] VFS: Mounted root (squashfs filesystem) readonly on device 31:2.
+[    1.970000] Freeing unused kernel memory: 228K (803b7000 - 803f0000)
+[    3.440000] init: Console is alive
+[    3.450000] init: - watchdog -
+[    6.030000] usbcore: registered new interface driver usbfs
+[    6.030000] usbcore: registered new interface driver hub
+[    6.030000] usbcore: registered new device driver usb
+[    6.100000] SCSI subsystem initialized
+[    6.110000] ehci_hcd: USB 2.0 'Enhanced' Host Controller (EHCI) Driver
+[    6.110000] ehci-platform: EHCI generic platform driver
+[    6.110000] ehci-platform ehci-platform: EHCI Host Controller
+[    6.110000] ehci-platform ehci-platform: new USB bus registered, assigned bus number 1
+[    6.120000] ehci-platform ehci-platform: irq 3, io mem 0x1b000000
+[    6.140000] ehci-platform ehci-platform: USB 2.0 started, EHCI 1.00
+[    6.140000] hub 1-0:1.0: USB hub found
+[    6.140000] hub 1-0:1.0: 1 port detected
+[    6.140000] ohci_hcd: USB 1.1 'Open' Host Controller (OHCI) Driver
+[    6.150000] ohci-platform: OHCI generic platform driver
+[    6.160000] usbcore: registered new interface driver usb-storage
+[    6.160000] input: gpio-keys-polled as /devices/platform/gpio-keys-polled/input/input0
+[    6.460000] usb 1-1: new high-speed USB device number 2 using ehci-platform
+[    6.490000] init: - preinit -
+[    6.900000] hub 1-1:1.0: USB hub found
+[    6.900000] hub 1-1:1.0: 4 ports detected
+[    7.360000] random: mktemp urandom read with 12 bits of entropy available
+[    7.370000] usb 1-1.1: new full-speed USB device number 3 using ehci-platform
+[    7.590000] usb 1-1.4: new high-speed USB device number 4 using ehci-platform
+[    7.720000] usb-storage 1-1.4:1.0: USB Mass Storage device detected
+[    7.720000] scsi host0: usb-storage 1-1.4:1.0
+[    8.720000] scsi 0:0:0:0: Direct-Access     Multi    Flash Reader     1.00 PQ: 0 ANSI: 0
+[    9.340000] sd 0:0:0:0: [sda] 121634816 512-byte logical blocks: (62.2 GB/58.0 GiB)
+[    9.340000] sd 0:0:0:0: [sda] Write Protect is off
+[    9.340000] sd 0:0:0:0: [sda] Mode Sense: 03 00 00 00
+[    9.340000] sd 0:0:0:0: [sda] No Caching mode page found
+[    9.340000] sd 0:0:0:0: [sda] Assuming drive cache: write through
+[    9.350000] sd 0:0:0:0: [sda]  
+[    9.350000] Result: hostbyte=0x00 driverbyte=0x08
+[    9.360000] sd 0:0:0:0: [sda]  
+[    9.360000] Sense Key : 0x2 [current] 
+[    9.360000] Info fld=0x0
+[    9.360000] sd 0:0:0:0: [sda]  
+[    9.360000] <<vendor>> ASC=0xff ASCQ=0xffASC=0xff <<vendor>> ASCQ=0xff
+[    9.370000] sd 0:0:0:0: [sda] CDB: 
+[    9.370000] cdb[0]=0x28: 28 00 00 00 00 00 00 00 08 00
+[    9.370000] blk_update_request: I/O error, dev sda, sector 0
+[    9.370000] Buffer I/O error on dev sda, logical block 0, async page read
+[    9.380000] sd 0:0:0:0: [sda]  
+[    9.380000] Result: hostbyte=0x00 driverbyte=0x08
+[    9.380000] sd 0:0:0:0: [sda]  
+[    9.380000] Sense Key : 0x2 [current] 
+[    9.380000] Info fld=0x0
+[    9.380000] sd 0:0:0:0: [sda]  
+[    9.390000] <<vendor>> ASC=0xff ASCQ=0xffASC=0xff <<vendor>> ASCQ=0xff
+[    9.390000] sd 0:0:0:0: [sda] CDB: 
+[    9.390000] cdb[0]=0x28: 28 00 00 00 00 00 00 00 08 00
+[    9.390000] blk_update_request: I/O error, dev sda, sector 0
+[    9.400000] Buffer I/O error on dev sda, logical block 0, async page read
+[    9.400000]  sda: unable to read partition table
+[    9.400000] sd 0:0:0:0: [sda] Attached SCSI removable disk
+[   10.500000] mount_root: loading kmods from internal overlay
+[   10.810000] sd 0:0:0:0: [sda]  
+[   10.810000] Result: hostbyte=0x00 driverbyte=0x08
+[   10.820000] sd 0:0:0:0: [sda]  
+[   10.820000] Sense Key : 0x2 [current] 
+[   10.820000] Info fld=0x0
+[   10.820000] sd 0:0:0:0: [sda]  
+[   10.820000] <<vendor>> ASC=0xff ASCQ=0xffASC=0xff <<vendor>> ASCQ=0xff
+[   10.820000] sd 0:0:0:0: [sda] CDB: 
+[   10.830000] cdb[0]=0x28: 28 00 00 00 00 00 00 00 20 00
+[   10.830000] blk_update_request: I/O error, dev sda, sector 0
+[   10.830000] sd 0:0:0:0: [sda]  
+[   10.830000] Result: hostbyte=0x00 driverbyte=0x08
+[   10.840000] sd 0:0:0:0: [sda]  
+[   10.840000] Sense Key : 0x2 [current] 
+[   10.840000] Info fld=0x0
+[   10.840000] sd 0:0:0:0: [sda]  
+[   10.840000] <<vendor>> ASC=0xff ASCQ=0xffASC=0xff <<vendor>> ASCQ=0xff
+[   10.850000] sd 0:0:0:0: [sda] CDB: 
+[   10.850000] cdb[0]=0x28: 28 00 00 00 00 00 00 00 08 00
+[   10.850000] blk_update_request: I/O error, dev sda, sector 0
+[   10.850000] Buffer I/O error on dev sda, logical block 0, async page read
+[   10.910000] jffs2: notice: (415) jffs2_build_xattr_subsystem: complete building xattr subsystem, 0 of xdatum (0 unchecked, 0 orphan) and 0 of xref (0 dead, 0 orphan) found.
+[   10.910000] block: attempting to load /tmp/jffs_cfg/upper/etc/config/fstab
+[   10.920000] block: extroot: device not present, retrying in 20 seconds
+[   30.930000] sd 0:0:0:0: [sda]  
+[   30.930000] Result: hostbyte=0x00 driverbyte=0x08
+[   30.930000] sd 0:0:0:0: [sda]  
+[   30.940000] Sense Key : 0x2 [current] 
+[   30.940000] Info fld=0x0
+[   30.940000] sd 0:0:0:0: [sda]  
+[   30.940000] <<vendor>> ASC=0xff ASCQ=0xffASC=0xff <<vendor>> ASCQ=0xff
+[   30.940000] sd 0:0:0:0: [sda] CDB: 
+[   30.940000] cdb[0]=0x28: 28 00 00 00 00 00 00 00 08 00
+[   30.950000] blk_update_request: I/O error, dev sda, sector 0
+[   30.950000] Buffer I/O error on dev sda, logical block 0, async page read
+[   30.950000] block: extroot: cannot find device with UUID cdd5a8a5-f9a8-4437-8499-c4097e1e07a0
+[   31.010000] jffs2: notice: (412) jffs2_build_xattr_subsystem: complete building xattr subsystem, 0 of xdatum (0 unchecked, 0 orphan) and 0 of xref (0 dead, 0 orphan) found.
+[   31.020000] mount_root: loading kmods from internal overlay
+[   31.270000] sd 0:0:0:0: [sda]  
+[   31.270000] Result: hostbyte=0x00 driverbyte=0x08
+[   31.270000] sd 0:0:0:0: [sda]  
+[   31.270000] Sense Key : 0x2 [current] 
+[   31.270000] Info fld=0x0
+[   31.270000] sd 0:0:0:0: [sda]  
+[   31.280000] <<vendor>> ASC=0xff ASCQ=0xffASC=0xff <<vendor>> ASCQ=0xff
+[   31.280000] sd 0:0:0:0: [sda] CDB: 
+[   31.280000] cdb[0]=0x28: 28 00 00 00 00 00 00 00 20 00
+[   31.280000] blk_update_request: I/O error, dev sda, sector 0
+[   31.310000] block: attempting to load /tmp/jffs_cfg/upper/etc/config/fstab
+[   31.780000] EXT4-fs (sda): mounted filesystem with ordered data mode. Opts: 
+[   31.820000] mount_root: switched to extroot
+[   31.880000] procd: - early -
+[   31.880000] procd: - watchdog -
+[   32.810000] procd: - ubus -
+[   33.820000] procd: - init -
+[   34.220000] random: nonblocking pool is initialized
+[   41.700000] NET: Registered protocol family 10
+[   41.710000] NET: Registered protocol family 8
+[   41.710000] NET: Registered protocol family 20
+[   41.720000] ntfs: driver 2.1.31 [Flags: R/O MODULE].
+[   41.740000] loop: module loaded
+[   41.760000] ip6_tables: (C) 2000-2006 Netfilter Core Team
+[   41.800000] hidraw: raw HID events driver (C) Jiri Kosina
+[   41.810000] fuse init (API version 7.23)
+[   41.830000] cdc_acm 1-1.1:1.0: This device cannot do calls on its own. It is not a modem.
+[   41.840000] cdc_acm 1-1.1:1.0: ttyACM0: USB ACM device
+[   41.840000] usbcore: registered new interface driver cdc_acm
+[   41.840000] cdc_acm: USB Abstract Control Model driver for USB modems and ISDN adapters
+[   41.850000] Loading modules backported from Linux version master-2015-03-09-0-g141f155
+[   41.850000] Backport generated by backports.git backports-20150129-0-gdd4a670
+[   41.860000] ip_tables: (C) 2000-2006 Netfilter Core Team
+[   41.880000] nf_conntrack version 0.5.0 (951 buckets, 3804 max)
+[   41.980000] xt_time: kernel timezone is -0000
+[   42.030000] cfg80211: Calling CRDA to update world regulatory domain
+[   42.030000] cfg80211: World regulatory domain updated:
+[   42.040000] cfg80211:  DFS Master region: unset
+[   42.040000] cfg80211:   (start_freq - end_freq @ bandwidth), (max_antenna_gain, max_eirp), (dfs_cac_time)
+[   42.040000] cfg80211:   (2402000 KHz - 2472000 KHz @ 40000 KHz), (N/A, 2000 mBm), (N/A)
+[   42.050000] cfg80211:   (2457000 KHz - 2482000 KHz @ 20000 KHz, 92000 KHz AUTO), (N/A, 2000 mBm), (N/A)
+[   42.050000] cfg80211:   (2474000 KHz - 2494000 KHz @ 20000 KHz), (N/A, 2000 mBm), (N/A)
+[   42.060000] cfg80211:   (5170000 KHz - 5250000 KHz @ 80000 KHz, 160000 KHz AUTO), (N/A, 2000 mBm), (N/A)
+[   42.060000] cfg80211:   (5250000 KHz - 5330000 KHz @ 80000 KHz, 160000 KHz AUTO), (N/A, 2000 mBm), (0 s)
+[   42.060000] cfg80211:   (5490000 KHz - 5730000 KHz @ 160000 KHz), (N/A, 2000 mBm), (0 s)
+[   42.070000] cfg80211:   (5735000 KHz - 5835000 KHz @ 80000 KHz), (N/A, 2000 mBm), (N/A)
+[   42.070000] cfg80211:   (57240000 KHz - 63720000 KHz @ 2160000 KHz), (N/A, 0 mBm), (N/A)
+[   42.200000] PPP generic driver version 2.4.2
+[   42.210000] NET: Registered protocol family 24
+[   42.300000] ath: EEPROM regdomain: 0x0
+[   42.300000] ath: EEPROM indicates default country code should be used
+[   42.300000] ath: doing EEPROM country->regdmn map search
+[   42.300000] ath: country maps to regdmn code: 0x3a
+[   42.300000] ath: Country alpha2 being used: US
+[   42.300000] ath: Regpair used: 0x3a
+[   42.310000] ieee80211 phy0: Selected rate control algorithm 'minstrel_ht'
+[   42.320000] ieee80211 phy0: Atheros AR9330 Rev:1 mem=0xb8100000, irq=2
+[   42.320000] cfg80211: Calling CRDA for country: US
+[   42.320000] cfg80211: Regulatory domain changed to country: US
+[   42.330000] cfg80211:  DFS Master region: FCC
+[   42.330000] cfg80211:   (start_freq - end_freq @ bandwidth), (max_antenna_gain, max_eirp), (dfs_cac_time)
+[   42.330000] cfg80211:   (2402000 KHz - 2472000 KHz @ 40000 KHz), (N/A, 3000 mBm), (N/A)
+[   42.340000] cfg80211:   (5170000 KHz - 5250000 KHz @ 80000 KHz, 160000 KHz AUTO), (N/A, 2300 mBm), (N/A)
+[   42.340000] cfg80211:   (5250000 KHz - 5330000 KHz @ 80000 KHz, 160000 KHz AUTO), (N/A, 2300 mBm), (0 s)
+[   42.340000] cfg80211:   (5490000 KHz - 5730000 KHz @ 160000 KHz), (N/A, 2300 mBm), (0 s)
+[   42.350000] cfg80211:   (5735000 KHz - 5835000 KHz @ 80000 KHz), (N/A, 3000 mBm), (N/A)
+[   42.350000] cfg80211:   (57240000 KHz - 63720000 KHz @ 2160000 KHz), (N/A, 4000 mBm), (N/A)
+[   49.650000] jffs2: notice: (1231) jffs2_build_xattr_subsystem: complete building xattr subsystem, 0 of xdatum (0 unchecked, 0 orphan) and 0 of xref (0 dead, 0 orphan) found.
+[   52.260000] IPv6: ADDRCONF(NETDEV_UP): eth1: link is not ready
+[   53.280000] cfg80211: Calling CRDA for country: AU
+[   53.280000] cfg80211: Regulatory domain changed to country: AU
+[   53.280000] cfg80211:  DFS Master region: ETSI
+[   53.280000] cfg80211:   (start_freq - end_freq @ bandwidth), (max_antenna_gain, max_eirp), (dfs_cac_time)
+[   53.290000] cfg80211:   (2402000 KHz - 2482000 KHz @ 40000 KHz), (N/A, 2000 mBm), (N/A)
+[   53.290000] cfg80211:   (5170000 KHz - 5250000 KHz @ 80000 KHz, 160000 KHz AUTO), (N/A, 1700 mBm), (N/A)
+[   53.300000] cfg80211:   (5250000 KHz - 5330000 KHz @ 80000 KHz, 160000 KHz AUTO), (N/A, 2400 mBm), (0 s)
+[   53.300000] cfg80211:   (5490000 KHz - 5710000 KHz @ 160000 KHz), (N/A, 2400 mBm), (0 s)
+[   53.300000] cfg80211:   (5735000 KHz - 5835000 KHz @ 80000 KHz), (N/A, 3000 mBm), (N/A)
+[   54.600000] eth1: link up (100Mbps/Full duplex)
+[   54.600000] IPv6: ADDRCONF(NETDEV_CHANGE): eth1: link becomes ready
+[   55.240000] IPv6: ADDRCONF(NETDEV_UP): wlan0: link is not ready
+[   60.000000] wlan0: authenticate with <ap-bssid>
+[   60.020000] wlan0: send auth to <ap-bssid> (try 1/3)
+[   60.050000] wlan0: authenticated
+[   60.060000] wlan0: associate with <ap-bssid> (try 1/3)
+[   60.080000] wlan0: RX AssocResp from <ap-bssid> (capab=0x1c11 status=0 aid=4)
+[   60.080000] wlan0: associated
+[   60.080000] IPv6: ADDRCONF(NETDEV_CHANGE): wlan0: link becomes ready
+[   60.140000] wlan0: Limiting TX power to 30 (30 - 0) dBm as advertised by <ap-bssid>
+[   87.350000] Custom GPIO-based SPI driver version 0.1
+[  379.230000] wlan0: deauthenticated from <ap-bssid> (Reason: 3=DEAUTH_LEAVING)
+[  380.170000] wlan0: authenticate with <ap-bssid>
+[  380.180000] wlan0: send auth to <ap-bssid> (try 1/3)
+[  380.220000] wlan0: authenticated
+[  380.230000] wlan0: associate with <ap-bssid> (try 1/3)
+[  380.240000] wlan0: RX AssocResp from <ap-bssid> (capab=0x1c11 status=0 aid=4)
+[  380.240000] wlan0: associated
+[  380.250000] wlan0: Limiting TX power to 30 (30 - 0) dBm as advertised by <ap-bssid>
+[  574.990000] Adding 1048572k swap on /overlay/swapfile.  Priority:-1 extents:6 across:1089532k 
+[ 1038.060000] usb 1-1.1: USB disconnect, device number 3
+[ 1038.310000] usb 1-1.1: new full-speed USB device number 5 using ehci-platform
+[ 1042.920000] usb 1-1.1: USB disconnect, device number 5
+[ 1043.170000] usb 1-1.1: new full-speed USB device number 6 using ehci-platform
+[ 1043.300000] cdc_acm 1-1.1:1.0: This device cannot do calls on its own. It is not a modem.
+[ 1043.300000] cdc_acm 1-1.1:1.0: ttyACM0: USB ACM device
+
+===== free/df
+             total         used         free       shared      buffers
+Mem:         60904        57656         3248          932         8816
+-/+ buffers:              48840        12064
+Swap:      1048572            0      1048572
+Filesystem                Size      Used Available Use% Mounted on
+rootfs                   57.0G      1.1G     53.0G   2% /
+/dev/root                 9.5M      9.5M         0 100% /rom
+tmpfs                    29.7M    932.0K     28.8M   3% /tmp
+/dev/sda                 57.0G      1.1G     53.0G   2% /overlay
+overlayfs:/overlay       57.0G      1.1G     53.0G   2% /
+tmpfs                   512.0K         0    512.0K   0% /dev
+/dev/mtdblock3            5.0M    644.0K      4.4M  13% /mnt/mtdblock3
+/dev/mtdblock7            9.5M      9.5M         0 100% /mnt/mtdblock7
+
+===== kernel uImage header
+00000000  27 05 19 56 c6 52 67 77  57 31 99 df 00 12 6d b8  |'..V.RgwW1....m.|
+00000010  80 06 00 00 80 06 00 00  da f0 4e 7d 05 05 02 03  |..........N}....|
+00000020  4d 49 50 53 20 4f 70 65  6e 57 72 74 20 4c 69 6e  |MIPS OpenWrt Lin|
+00000030  75 78 2d 33 2e 31 38 2e  32 33 00 00 00 00 00 00  |ux-3.18.23......|
+00000040
+
+===== rootfs first bytes
+00000000  68 73 71 73 20 0b 00 00  e2 99 31 57 00 00 04 00  |hsqs .....1W....|
+00000010
+
+===== gpio
+GPIOs 0-29, ath79:
+ gpio-0   (ds:green:wlan       ) out hi    
+ gpio-1   (ds:green:usb        ) out lo    
+ gpio-8   (spi_gpio.1          ) in  lo    
+ gpio-11  (spi_gpio.1          ) out lo    
+ gpio-20  (configuration button) in  hi    
+ gpio-21  (OE-1                ) out lo    
+ gpio-22  (OE-2                ) out lo    
+ gpio-23  (UART-ENA            ) out lo    
+ gpio-27  (spi_gpio.1          ) out lo    
+--w-------    1 root     root          4096 Jan  1  1970 export
+lrwxrwxrwx    1 root     root             0 Jan  1  1970 gpio21 -> ../../devices/virtual/gpio/gpio21
+lrwxrwxrwx    1 root     root             0 Jan  1  1970 gpio22 -> ../../devices/virtual/gpio/gpio22
+lrwxrwxrwx    1 root     root             0 Jan  1  1970 gpio23 -> ../../devices/virtual/gpio/gpio23
+lrwxrwxrwx    1 root     root             0 Jan  1  1970 gpiochip0 -> ../../devices/virtual/gpio/gpiochip0
+--w-------    1 root     root          4096 Jan  1  1970 unexport
+
+===== leds
+ath9k-phy0
+ds:green:usb
+ds:green:wlan
+
+===== avrdude linuxgpio
+16-  id = "linuxgpio_yun";
+17-  desc = "Use the Linux sysfs interface to bitbang GPIO lines";
+18:  type = "linuxgpio";
+19-  reset = ~18;
+20-  sck = 11;
+21-  mosi = 27;
+22-  miso = 8;
+23-;
+24-
+25-programmer
+26-  id    = "linuxgpio_nuy";
+27-  desc  = "Use the Linux sysfs interface to bitbang GPIO lines";
+28:  type  = "linuxgpio";
+29-  reset = ~12;
+30-  sck   = 19;
+31-  mosi = 20;
+32-  miso  = 21;
+33-;
+34-
+35-#------------------------------------------------------------
+36-# ATmega328
+37-#------------------------------------------------------------
+38-
+39-part
+40-    id			= "m328";
+
+===== inittab
+::sysinit:/etc/init.d/rcS S boot
+::shutdown:/etc/init.d/rcS K shutdown
+::askconsole:/bin/ash --login
+
+===== login
+#!/bin/sh
+# Copyright (C) 2006-2011 OpenWrt.org
+
+if ( ! grep -qsE '^root:[!x]?:' /etc/shadow || \
+     ! grep -qsE '^root:[!x]?:' /etc/passwd ) && \
+   [ -z "$FAILSAFE" ]
+then
+	echo "Login failed."
+	exit 0
+else
+cat << EOF
+ === IMPORTANT ============================
+  Use 'passwd' to set your login password
+  this will disable telnet and enable SSH
+ ------------------------------------------
+EOF
+fi
+
+exec /bin/ash --login
+
+===== sysctl
+kernel.panic=3
+net.ipv4.conf.default.arp_ignore=1
+net.ipv4.conf.all.arp_ignore=1
+net.ipv4.ip_forward=1
+net.ipv4.icmp_echo_ignore_broadcasts=1
+net.ipv4.icmp_ignore_bogus_error_responses=1
+net.ipv4.igmp_max_memberships=100
+net.ipv4.tcp_ecn=0
+net.ipv4.tcp_fin_timeout=30
+net.ipv4.tcp_keepalive_time=120
+net.ipv4.tcp_syncookies=1
+net.ipv4.tcp_timestamps=1
+net.ipv4.tcp_sack=1
+net.ipv4.tcp_dsack=1
+
+net.ipv6.conf.default.forwarding=1
+net.ipv6.conf.all.forwarding=1
+
+net.netfilter.nf_conntrack_acct=1
+net.netfilter.nf_conntrack_checksum=0
+net.netfilter.nf_conntrack_max=16384
+net.netfilter.nf_conntrack_tcp_timeout_established=7440
+net.netfilter.nf_conntrack_udp_timeout=60
+net.netfilter.nf_conntrack_udp_timeout_stream=180
+
+# disable bridge firewalling by default
+net.bridge.bridge-nf-call-arptables=0
+net.bridge.bridge-nf-call-ip6tables=0
+net.bridge.bridge-nf-call-iptables=0
+7	4	1	7
+
+===== rc.local
+# Put your custom commands here that should be executed once
+# the system init finished. By default this file does nothing.
+
+boot-complete-notify
+
+# yun-sd-extras: swap file and data folder on the SD card (skipped when running from internal flash)
+if grep -q "^/dev/sd.* /overlay " /proc/mounts; then
+    [ -f /overlay/swapfile ] || { dd if=/dev/zero of=/overlay/swapfile bs=1M count=1024 2>/dev/null; mkswap /overlay/swapfile >/dev/null; }
+    swapon /overlay/swapfile 2>/dev/null
+    mkdir -p /mnt/data
+fi
+exit 0
+
+===== rc.d
+K50dropbear
+K85odhcpd
+K89log
+K90network
+K98boot
+K99internet-check-service
+K99umount
+K99usd
+S00sysfixtime
+S09handle_wifi_reset
+S10boot
+S10system
+S11sysctl
+S12log
+S12rpcd
+S18rename-wifi-if-access-point
+S19firewall
+S20network
+S35odhcpd
+S40firstconfig
+S40fstab
+S48rngd
+S49delete_uhttpd_cert
+S49generate_new_gpg_key
+S50cron
+S50dropbear
+S50telnet
+S50uhttpd
+S60avahi-update-config
+S60create-spi-gpio
+S60dnsmasq
+S60webpanel-update-config
+S61avahi-daemon
+S93triggerhappy
+S95done
+S96led
+S98sysntpd
+S99internet-check-service
+S99rngd-turn-off
+S99usd
+
+===== buttons
+/etc/hotplug.d:
+block
+firmware
+iface
+input
+net
+
+/etc/hotplug.d/block:
+10-mount
+
+/etc/hotplug.d/firmware:
+10-ath9k-eeprom
+11-ath10k-caldata
+
+/etc/hotplug.d/iface:
+00-netstate
+20-firewall
+25-dnsmasq
+
+/etc/hotplug.d/input:
+10-triggerhappy
+
+/etc/hotplug.d/net:
+00-sysctl
+10-ar922x-led-fix
+
+/etc/rc.button:
+failsafe
+power
+reset
+rfkill
+# This is an example configuration for the triggerhappy daemon (thd)
+# please note that every file to be processed must end in ".conf"
+#
+# To view a list of supported event codes, use "thd --listevents" or
+# "thd --dump /dev/input/event*"
+#
+# Format:
+# <eventcode> <value> <command>
+#
+# values for key events are 1 (pressed), 0 (released) or 2 (held)
+#
+## control an mpd instance
+# KEY_NEXTSONG		1	/usr/bin/mpc next
+# KEY_PREVSONG		1	/usr/bin/mpc prev
+KEY_WPS_BUTTON	1	/usr/bin/wifi-reset-button-pressed
+KEY_WPS_BUTTON	0	/usr/bin/wifi-reset-button-released
+
+===== avahi
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+	<name replace-wildcards="yes">%h</name>
+	<service>
+		<type>_arduino._tcp</type>
+		<port>80</port>
+		<txt-record>board=yun</txt-record>
+		<txt-record>distro_version=0.1</txt-record>
+	</service>
+</service-group>
+<?xml version="1.0" standalone='no'?><!--*-nxml-*-->
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+ <name replace-wildcards="yes">%h</name>
+  <service>
+   <type>_http._tcp</type>
+   <port>80</port>
+   <txt-record>path=/</txt-record>
+  </service>
+</service-group>
+<?xml version="1.0" standalone='no'?><!--*-nxml-*-->
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+ <name replace-wildcards="yes">%h</name>
+  <service>
+   <type>_ssh._tcp</type>
+   <port>22</port>
+  </service>
+</service-group>
+
+===== sysupgrade -l
+/etc/avahi/avahi-daemon.conf
+/etc/avahi/services/arduino.service
+/etc/avahi/services/http.service
+/etc/avahi/services/ssh.service
+/etc/avrdude.conf
+/etc/config/arduino
+/etc/config/dhcp
+/etc/config/dropbear
+/etc/config/firewall
+/etc/config/fstab
+/etc/config/fstab.bak-lexar
+/etc/config/fstab.bak-pre-extroot
+/etc/config/fstab.bak-sdparts
+/etc/config/luci
+/etc/config/network
+/etc/config/rpcd
+/etc/config/system
+/etc/config/ubootenv
+/etc/config/ucitrack
+/etc/config/uhttpd
+/etc/config/wireless
+/etc/dnsmasq.conf
+/etc/dropbear/authorized_keys
+/etc/dropbear/dropbear_dss_host_key
+/etc/dropbear/dropbear_rsa_host_key
+/etc/e2fsck.conf
+/etc/firewall.user
+/etc/group
+/etc/hosts
+/etc/httpd.conf
+/etc/inittab
+/etc/opkg.conf
+/etc/opkg/customfeeds.conf
+/etc/opkg/keys/43bf37a83938580d
+/etc/opkg/keys/53bad1233d4c98c5
+/etc/opkg/keys/de98a2dd1d0f8a07
+/etc/passwd
+/etc/ppp/chap-secrets
+/etc/ppp/filter
+/etc/ppp/options
+/etc/profile
+/etc/protocols
+/etc/rc.local
+/etc/services
+/etc/shadow
+/etc/shells
+/etc/sysctl.conf
+/etc/sysupgrade.conf
+/etc/uhttpd.crt
+/etc/uhttpd.key
+
+===== shadow format
+root:$1$<redacted>
+daemon:*
+ftp:*
+network:*
+nobody:*
+avahi:x
+
+===== uci system
+system.@system[0]=system
+system.@system[0].hostname='Arduino'
+system.@system[0].timezone='<redacted>'
+system.@system[0].zonename='<redacted>'
+system.ntp=timeserver
+system.ntp.server='0.openwrt.pool.ntp.org' '1.openwrt.pool.ntp.org' '2.openwrt.pool.ntp.org' '3.openwrt.pool.ntp.org'
+system.ntp.enable_server='0'
+
+===== uci network
+network.loopback=interface
+network.loopback.ifname='lo'
+network.loopback.proto='static'
+network.loopback.ipaddr='127.0.0.1'
+network.loopback.netmask='255.0.0.0'
+network.globals=globals
+network.globals.ula_prefix='<redacted>'
+network.lan=interface
+network.lan.force_link='1'
+network.lan.ip6assign='60'
+network.lan._orig_ifname='wlan0'
+network.lan._orig_bridge='false'
+network.lan.hostname='Arduino'
+network.lan.proto='dhcp'
+network.wan=interface
+network.wan.proto='dhcp'
+network.wan._orig_ifname='eth1'
+network.wan._orig_bridge='false'
+network.wan.ifname='eth1'
+network.wan.hostname='Arduino'
+
+===== uci wireless
+wireless.radio0=wifi-device
+wireless.radio0.type='mac80211'
+wireless.radio0.hwmode='11ng'
+wireless.radio0.path='platform/ar933x_wmac'
+wireless.radio0.htmode='HT20'
+wireless.radio0.ht_capab='SHORT-GI-20' 'SHORT-GI-40' 'RX-STBC1' 'DSSS_CCK-40'
+wireless.radio0.txpower='17'
+wireless.radio0.channel='auto'
+wireless.radio0.country='AU'
+wireless.@wifi-iface[0]=wifi-iface
+wireless.@wifi-iface[0].device='radio0'
+wireless.@wifi-iface[0].network='lan'
+wireless.@wifi-iface[0].mode='sta'
+wireless.@wifi-iface[0].ssid='<redacted>'
+wireless.@wifi-iface[0].encryption='psk2'
+wireless.@wifi-iface[0].key='<redacted>'
+
+===== uci dhcp
+dhcp.@dnsmasq[0]=dnsmasq
+dhcp.@dnsmasq[0].domainneeded='1'
+dhcp.@dnsmasq[0].boguspriv='1'
+dhcp.@dnsmasq[0].filterwin2k='0'
+dhcp.@dnsmasq[0].localise_queries='1'
+dhcp.@dnsmasq[0].rebind_protection='1'
+dhcp.@dnsmasq[0].rebind_localhost='1'
+dhcp.@dnsmasq[0].local='/lan/'
+dhcp.@dnsmasq[0].domain='lan'
+dhcp.@dnsmasq[0].expandhosts='1'
+dhcp.@dnsmasq[0].nonegcache='0'
+dhcp.@dnsmasq[0].authoritative='1'
+dhcp.@dnsmasq[0].readethers='1'
+dhcp.@dnsmasq[0].leasefile='/tmp/dhcp.leases'
+dhcp.@dnsmasq[0].resolvfile='/tmp/resolv.conf.auto'
+dhcp.@dnsmasq[0].localservice='1'
+dhcp.@dnsmasq[0].interface='lo'
+dhcp.lan=dhcp
+dhcp.lan.interface='lan'
+dhcp.lan.start='100'
+dhcp.lan.limit='150'
+dhcp.lan.leasetime='12h'
+dhcp.lan.dhcpv6='server'
+dhcp.lan.ra='server'
+dhcp.wan=dhcp
+dhcp.wan.interface='wan'
+dhcp.wan.ignore='1'
+dhcp.odhcpd=odhcpd
+dhcp.odhcpd.maindhcp='0'
+dhcp.odhcpd.leasefile='/tmp/hosts/odhcpd'
+dhcp.odhcpd.leasetrigger='/usr/sbin/odhcpd-update'
+
+===== uci uhttpd
+uhttpd.main=uhttpd
+uhttpd.main.listen_http='0.0.0.0:80' '[::]:80'
+uhttpd.main.listen_https='0.0.0.0:443' '[::]:443'
+uhttpd.main.home='/www'
+uhttpd.main.rfc1918_filter='1'
+uhttpd.main.max_requests='3'
+uhttpd.main.max_connections='100'
+uhttpd.main.cert='/etc/uhttpd.crt'
+uhttpd.main.key='<redacted>'
+uhttpd.main.cgi_prefix='/cgi-bin'
+uhttpd.main.script_timeout='60'
+uhttpd.main.network_timeout='30'
+uhttpd.main.http_keepalive='20'
+uhttpd.main.tcp_keepalive='1'
+uhttpd.main.ubus_prefix='/ubus'
+uhttpd.main.redirect_https='0'
+uhttpd.px5g=cert
+uhttpd.px5g.days='730'
+uhttpd.px5g.bits='1024'
+uhttpd.px5g.country='ZZ'
+uhttpd.px5g.state='Somewhere'
+uhttpd.px5g.location='Uknown'
+uhttpd.px5g.commonname='OpenWrt'
+
+===== uci dropbear
+dropbear.@dropbear[0]=dropbear
+dropbear.@dropbear[0].PasswordAuth='on'
+dropbear.@dropbear[0].RootPasswordAuth='on'
+dropbear.@dropbear[0].Port='22'
+
+===== uci arduino
+arduino.@arduino[0]=arduino
+arduino.@arduino[0].password='<redacted>'
+arduino.@arduino[0].secure_rest_api='true'
+arduino.@arduino[0].socket_timeout='5'
+arduino.@arduino[0].first_configuration='1'
+arduino.@arduino[0].access_point_wifi_name='Arduino'
+arduino.@arduino[0].usb_autoupdate_sketch='false'
+arduino.@arduino[0].arduino_avr_uno='run-avrdude /tmp/sketch.hex '\''-q -q'\''  -patmega328p 2>&1'
+arduino.@arduino[0].arduino_avr_leonardo='run-avrdude /tmp/sketch.hex '\''-q -q'\'' -pm32u4 2>&1'
+arduino.@arduino[0].arduino_avr_mega='run-avrdude /tmp/sketch.hex '\''-q -q'\'' -patmega2560 2>&1'
+arduino.@arduino[0].arduino_avr_diecimila='run-avrdude /tmp/sketch.hex '\''-q -q'\'' -patmega328p 2>&1'
+arduino.@arduino[0].arduino_sam_due='run-bossac -i -d --port=ttyATH0 -U false -e -w -v -b /tmp/sketch.hex -R'
+arduino.@arduino[0].arduino_sam_zero='run-bossac -i -d --port=ttyATH0 -U false -e -w -v /tmp/sketch.hex -R'
+arduino.@arduino[0].arduino_avr_yun='run-avrdude /tmp/sketch.hex '\''-q -q'\'' 2>&1'
+arduino.@arduino[0].default_target='arduino_yun'
+arduino.@arduino[0].wifi_reset_step='clear'
+arduino.radio0=wifi-device
+arduino.radio0.channel='auto'
+arduino.radio0.country='AU'
+arduino.@wifi-iface[0]=wifi-iface
+arduino.@wifi-iface[0].mode='sta'
+arduino.@wifi-iface[0].ssid='<redacted>'
+arduino.@wifi-iface[0].encryption='psk2'
+arduino.@wifi-iface[0].key='<redacted>'
+arduino.lan=interface
+arduino.lan.proto='dhcp'
+
+===== bridge on board
+-rw-r--r--    1 root     root             0 May 10  2016 __init__.py
+-rw-r--r--    1 root     root          2568 May 10  2016 bridge.py
+-rw-r--r--    1 root     root          3413 May 10  2016 bridgeclient.py
+-rw-r--r--    1 root     root          1010 May 10  2016 bridgeclient_example.py
+-rw-r--r--    1 root     root          4852 May 10  2016 console.py
+-rw-r--r--    1 root     root          5458 May 10  2016 files.py
+-rw-r--r--    1 root     root          4701 May 10  2016 mailbox.py
+-rw-r--r--    1 root     root          5459 May 10  2016 packet.py
+-rw-r--r--    1 root     root          5805 May 10  2016 processes.py
+-rw-r--r--    1 root     root          9655 May 10  2016 sockets.py
+-rw-r--r--    1 root     root          8880 May 10  2016 sockets_udp.py
+-rw-r--r--    1 root     root         10366 May 10  2016 streamingjson.py
+-rw-r--r--    1 root     root          5552 May 10  2016 tcp.py
+-rw-r--r--    1 root     root          1777 May 10  2016 utils.py
+d41d8cd98f00b204e9800998ecf8427e  /usr/lib/python2.7/bridge/__init__.py
+7ec6276a85fbff233985a0865eb98c6b  /usr/lib/python2.7/bridge/bridge.py
+4dac5b13f9e2bba24214e42885e876d0  /usr/lib/python2.7/bridge/bridgeclient.py
+ec9d612809571a0514c0af3668c74669  /usr/lib/python2.7/bridge/bridgeclient_example.py
+b09c5e05be183f18c6161eb2c6b6db8b  /usr/lib/python2.7/bridge/console.py
+f2b5679ea460a908530fa6b7695b1f84  /usr/lib/python2.7/bridge/files.py
+beab5a445bda43e3d11365618059f1ae  /usr/lib/python2.7/bridge/mailbox.py
+ec1ad524e5979c9234cacc83e424ba0e  /usr/lib/python2.7/bridge/packet.py
+8590ac0f29005aeb946ca3f1d8e0195f  /usr/lib/python2.7/bridge/processes.py
+80a63411b04de1a0460903ec2a6c097f  /usr/lib/python2.7/bridge/sockets.py
+eb5134ab175304ce24adab5aadbaa449  /usr/lib/python2.7/bridge/sockets_udp.py
+416f1f0ea3dd8ba3142c8e9f25449b50  /usr/lib/python2.7/bridge/streamingjson.py
+325bd0765e9ec6e4c28cc07d55e9dd00  /usr/lib/python2.7/bridge/tcp.py
+9a27765ff446f6ebdb104d7cb198f20f  /usr/lib/python2.7/bridge/utils.py
+
+===== yun scripts
+--- run-bridge
+#!/bin/sh
+
+stty -F /dev/ttyATH0 -echo
+
+cd /usr/lib/python2.7/bridge
+
+exec python -u bridge.py 2> /tmp/bridge.py-stderr.log
+
+--- kill-bridge
+#!/bin/sh
+
+PID=`/usr/bin/pgrep -f "python -u bridge.py"`
+if [ "x$PID" != "x" ]; then
+	/bin/kill -9 $PID
+fi
+
+bridge-stopped
+
+PID=`/usr/bin/pgrep -f "/bin/ash --login"`
+if [ "x$PID" != "x" ]; then
+	/bin/kill -9 $PID
+fi
+--- reset-mcu
+#!/bin/sh
+
+source /usr/bin/get-gpio-conf
+
+echo $GPIO_MCU_RESET > /sys/class/gpio/export
+echo "high" > /sys/class/gpio/gpio$GPIO_MCU_RESET/direction
+echo 1 > /sys/class/gpio/gpio$GPIO_MCU_RESET/value
+echo 0 > /sys/class/gpio/gpio$GPIO_MCU_RESET/value
+echo $GPIO_MCU_RESET > /sys/class/gpio/unexport
+
+--- run-avrdude
+#!/bin/sh
+
+. /usr/bin/get-gpio-conf
+. /lib/ar71xx.sh 
+
+LINUXSPI=linuxspi_$(ar71xx_board_name)
+
+HEX=$1
+
+OPTIND=3
+while getopts ":qvp:l:h:e:" optname
+do
+	case "$optname" in
+	"q")
+		VERBOSE="-q -q"
+	;;
+	"v")
+		VERBOSE="-v"
+	;;
+	"p")
+		MCU=$OPTARG
+	;;
+	"l")
+		FUSES_LOW=$OPTARG
+	;;
+	"h")
+		FUSES_HIGH=$OPTARG
+	;;
+	"e")
+		FUSES_EXT=$OPTARG
+	;;
+	"?")
+		echo "Unknown option $OPTARG"
+	;;
+	":")
+		echo "No argument value for option $OPTARG"
+		exit 1
+	;;
+	*)
+		# Should not occur
+		echo "Unknown error while processing options"
+	;;
+	esac
+done
+
+#if no arguments given for MCU and FUSES, assume ATmega32U4
+if [ "x$FUSES_LOW" = "x" -a "x$FUSES_HIGH" = "x" -a "x$FUSES_EXT" = "x" -a "x$MCU" = "x" ]
+then
+	MCU="m32u4"
+	FUSES_LOW="0xFF"
+	FUSES_HIGH="0xD8"
+fi
+
+echo 1 > /sys/class/gpio/gpio$GPIO_SPI_OE/value
+
+#convert $MCU to lowercase for safer comparison
+MCU=$(echo $MCU | awk '{print tolower($0)}')
+#if MCU is ATmega32U4 read actual efuse before flashing
+if [ "x$MCU" = "xm32u4" -o "x$MCU" = "xatmega32u4" ]
+then
+	MCU="m32u4"
+	avrdude  -q -q -c $LINUXSPI -P /dev/spidev1.0 -p m32u4 -U efuse:r:/tmp/efuse:d
+	read EFUSE < /tmp/efuse
+	rm -f /tmp/efuse
+fi
+
+if [ "x$EFUSE" = "x203" -a "x$MCU" = "xm32u4" ] # 203 = 0xCB
+then
+	FUSES_EXT="0xCB"
+fi
+
+avrdude -c $LINUXSPI -P /dev/spidev1.0 -p $MCU -U lfuse:w:$FUSES_LOW:m -U hfuse:w:$FUSES_HIGH:m -U efuse:w:$FUSES_EXT:m -Uflash:w:$HEX:i $VERBOSE
+avrdude_return=$?
+
+echo 0 > /sys/class/gpio/gpio$GPIO_SPI_OE/value
+
+exit $avrdude_return
