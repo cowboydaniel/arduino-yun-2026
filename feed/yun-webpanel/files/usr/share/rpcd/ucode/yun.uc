@@ -10,7 +10,7 @@
 
 'use strict';
 
-import { readfile, writefile, popen, stat, glob, unlink, access, open, mkdir, lsdir } from 'fs';
+import { readfile, writefile, popen, stat, glob, unlink, access, open, mkdir, lsdir, readlink } from 'fs';
 import { cursor } from 'uci';
 import * as ubus from 'ubus';
 import * as bridge from 'yun.bridge';
@@ -337,6 +337,141 @@ function shell_kill_tree(pid) {
 	system([ 'sh', '-c', 'sleep 1; kill -KILL "$@" 2>/dev/null', 'sh', ...all ]);
 }
 
+// Start a command as a terminal job; the panel follows it with shell_poll.
+function shell_launch(cmd, cwd) {
+	mkdir(SHELL_DIR, 0700);
+	shell_cleanup();
+	if (shell_running() >= SHELL_MAX_JOBS)
+		return { error: `Already running ${SHELL_MAX_JOBS} commands; stop one first` };
+	let id = hexenc(readfile('/dev/urandom', 8));
+	system([ '/bin/sh', '-c', SHELL_JOB, 'sh', cwd, cmd, shell_job_path(id) ]);
+	return { id };
+}
+
+// --- USB devices ---------------------------------------------------------
+//
+// What's plugged into the USB port, and for a device no driver has claimed,
+// which OpenWrt package has one. The kernel is built like OpenWrt's official
+// one, so these install from downloads.openwrt.org with apk.
+
+const USB_SYSFS = getenv('YUN_USB_SYSFS') ?? '/sys/bus/usb/devices';
+// The SD card slot is a card reader on port 4 of the Yun's internal hub.
+const USB_SD_READER = '1-1.4';
+
+// By vendor:product, then by vendor: chips that identify as "vendor
+// specific", so their class says nothing.
+const USB_BY_ID = {
+	'0e8d:7612': [ 'kmod-mt76x2u' ],                     // MediaTek MT7612U: 5 GHz Wi-Fi
+	'0e8d:7632': [ 'kmod-mt76x2u' ],
+	'0e8d:7961': [ 'kmod-mt7921u' ],                     // MediaTek MT7921AU: Wi-Fi 6
+	'148f:7601': [ 'kmod-mt7601u' ],                     // MediaTek MT7601U: 2.4 GHz
+	'0bda:8152': [ 'kmod-usb-net-rtl8152' ],             // Realtek USB Ethernet
+	'0bda:8153': [ 'kmod-usb-net-rtl8152' ],
+	'0bda:8156': [ 'kmod-usb-net-rtl8152' ],
+	'0b95:1790': [ 'kmod-usb-net-asix-ax88179' ],        // ASIX gigabit Ethernet
+	'0b95:772b': [ 'kmod-usb-net-asix' ],
+	'0b95:7720': [ 'kmod-usb-net-asix' ],
+	'0403': [ 'kmod-usb-serial-ftdi' ],                  // FTDI serial
+	'1a86': [ 'kmod-usb-serial-ch341' ],                 // WCH CH340/CH341 serial
+	'10c4': [ 'kmod-usb-serial-cp210x' ],                // Silicon Labs CP210x serial
+	'067b': [ 'kmod-usb-serial-pl2303' ],                // Prolific PL2303 serial
+};
+
+// By interface class (and subclass/protocol).
+function usb_packages_for_class(cls, sub, proto) {
+	switch (cls) {
+	case '01': return [ 'kmod-usb-audio' ];
+	case '02':
+		if (sub == '02') return [ 'kmod-usb-acm' ];
+		if (sub == '06') return [ 'kmod-usb-net-cdc-ether' ];
+		if (sub == '0d') return [ 'kmod-usb-net-cdc-ncm' ];
+		return null;
+	case '03': return [ 'kmod-usb-hid' ];
+	case '07': return [ 'kmod-usb-printer' ];
+	case '08': return [ 'kmod-usb-storage-uas' ];
+	case '0e': return [ 'kmod-video-uvc' ];
+	case 'e0':
+		if (sub == '01' && proto == '01') return [ 'kmod-bluetooth' ];
+		if (sub == '01' && proto == '03') return [ 'kmod-usb-net-rndis' ];
+		return null;
+	case 'ef':
+		if (sub == '04' && proto == '01') return [ 'kmod-usb-net-rndis' ];
+		return null;
+	}
+	return null;
+}
+
+const USB_CLASS_NAMES = {
+	'01': 'Audio', '02': 'Communications', '03': 'Input (HID)', '06': 'Camera (still image)',
+	'07': 'Printer', '08': 'Storage', '09': 'Hub', '0a': 'Communications data', '0e': 'Video',
+	'e0': 'Wireless', 'ef': 'Miscellaneous', 'ff': 'Vendor specific',
+};
+
+// Every package the panel may install: nothing else goes to apk.
+function usb_known_packages() {
+	let all = {};
+	for (let id, pkgs in USB_BY_ID)
+		for (let p in pkgs) all[p] = true;
+	for (let c in [ ['01'], ['02', '02'], ['02', '06'], ['02', '0d'], ['03'], ['07'], ['08'], ['0e'],
+	                ['e0', '01', '01'], ['e0', '01', '03'] ])
+		for (let p in usb_packages_for_class(...c) ?? []) all[p] = true;
+	return all;
+}
+
+function usb_attr(dir, name) {
+	return trim_read(`${dir}/${name}`);
+}
+
+function usb_devices() {
+	let res = [];
+	for (let name in sort(lsdir(USB_SYSFS) ?? [])) {
+		// Devices are like 1-1.4; interfaces (1-1.4:1.0) and root hubs
+		// (usb1) are left out.
+		if (!match(name, /^[0-9]+-[0-9.]+$/))
+			continue;
+		let dir = `${USB_SYSFS}/${name}`;
+		let vid = usb_attr(dir, 'idVendor'), pid = usb_attr(dir, 'idProduct');
+		let dev_class = usb_attr(dir, 'bDeviceClass');
+		if (!vid || dev_class == '09')
+			continue;
+
+		let interfaces = [], missing = false, suggest = null;
+		for (let ifname in sort(lsdir(dir) ?? [])) {
+			if (index(ifname, `${name}:`) != 0)
+				continue;
+			let idir = `${dir}/${ifname}`;
+			let cls = usb_attr(idir, 'bInterfaceClass'), sub = usb_attr(idir, 'bInterfaceSubClass');
+			let proto = usb_attr(idir, 'bInterfaceProtocol');
+			let drv = readlink(`${idir}/driver`);
+			drv = drv ? replace(drv, /^.*\//, '') : null;
+			// Data interfaces are claimed by the driver of their control
+			// interface; don't count them as missing a driver.
+			if (!drv && cls != '0a') {
+				missing = true;
+				suggest ??= usb_packages_for_class(cls, sub, proto);
+			}
+			push(interfaces, { class: cls, type: USB_CLASS_NAMES[cls] ?? 'Other', driver: drv });
+		}
+		if (missing)
+			suggest = USB_BY_ID[`${vid}:${pid}`] ?? USB_BY_ID[vid] ?? suggest;
+
+		let product = usb_attr(dir, 'product'), maker = usb_attr(dir, 'manufacturer');
+		push(res, {
+			path: name,
+			id: `${vid}:${pid}`,
+			name: product ?? `USB device ${vid}:${pid}`,
+			manufacturer: maker,
+			speed: +(usb_attr(dir, 'speed') ?? 0),
+			builtin: name == USB_SD_READER,
+			types: uniq(map(filter(interfaces, i => i.class != '0a'), i => i.type)),
+			drivers: uniq(filter(map(interfaces, i => i.driver), d => d)),
+			needs_driver: missing,
+			packages: missing ? (suggest ?? []) : [],
+		});
+	}
+	return res;
+}
+
 const methods = {
 	status: {
 		call: function() {
@@ -576,14 +711,7 @@ const methods = {
 				return { error: 'Type a command' };
 			if (index(cmd, '\u0000') >= 0 || type(cwd) != 'string' || index(cwd, '\u0000') >= 0)
 				return { error: 'Invalid characters' };
-			mkdir(SHELL_DIR, 0700);
-			shell_cleanup();
-			if (shell_running() >= SHELL_MAX_JOBS)
-				return { error: `Already running ${SHELL_MAX_JOBS} commands; stop one first` };
-			let id = hexenc(readfile('/dev/urandom', 8));
-			let path = shell_job_path(id);
-			system([ '/bin/sh', '-c', SHELL_JOB, 'sh', cwd, cmd, path ]);
-			return { id };
+			return shell_launch(cmd, cwd);
 		}
 	},
 
@@ -628,6 +756,24 @@ const methods = {
 				shell_kill_tree(pid);
 			}
 			return { ok: true };
+		}
+	},
+
+	usb_devices: {
+		call: function() {
+			return { devices: usb_devices() };
+		}
+	},
+
+	// Install a driver package for a USB device, as a terminal job the
+	// panel follows with shell_poll.
+	usb_install: {
+		args: { package: '' },
+		call: function(req) {
+			let pkg = req.args.package;
+			if (type(pkg) != 'string' || !usb_known_packages()[pkg])
+				return { error: 'Unknown driver package' };
+			return shell_launch(`apk update >/dev/null && apk add ${pkg}`, '/tmp');
 		}
 	},
 

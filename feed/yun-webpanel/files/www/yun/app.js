@@ -154,6 +154,11 @@
     $$('.view').forEach((v) => (v.hidden = v.dataset.view !== name));
     $$('.nav-link').forEach((a) => a.classList.toggle('active', a.dataset.view === name));
     clearInterval(dataTimer);
+    clearInterval(usbTimer);
+    if (name === 'overview') {
+      refreshUsb();
+      usbTimer = setInterval(refreshUsb, 5000);
+    }
     if (name === 'bridge') {
       refreshData();
       dataTimer = setInterval(refreshData, 2000);
@@ -459,6 +464,91 @@
         zone.classList.remove('over');
         flash(e.dataTransfer.files[0]);
       });
+    }
+  }
+
+  // --- USB devices -------------------------------------------------------
+
+  let usbTimer = null;
+  let usbInstalling = false;
+
+  function usbSpeed(mbit) {
+    return { 1.5: 'USB 1.0', 12: 'USB 1.1', 480: 'USB 2.0' }[mbit] || (mbit ? `${mbit} Mbit/s` : '');
+  }
+
+  async function refreshUsb() {
+    let devices;
+    try {
+      ({ devices = [] } = await api.call('yun', 'usb_devices'));
+    } catch (err) {
+      if (err.code === 'auth') signedOut();
+      return;
+    }
+    const list = $('#usb-list');
+    const external = devices.filter((d) => !d.builtin);
+    if (!external.length) {
+      list.replaceChildren(el('li', { class: 'muted' },
+        'Nothing plugged in. Serial adapters and Arduinos, webcams, sound cards, Bluetooth, Ethernet and Wi-Fi dongles (including 5 GHz ones) can all work here.'));
+      return;
+    }
+    list.replaceChildren(...external.map((d) => {
+      let state;
+      if (!d.needs_driver) {
+        state = el('span', { class: 'badge is-ok' }, 'Working');
+      } else if (d.packages.length) {
+        state = el('button', {
+          class: 'btn btn-primary', type: 'button', disabled: usbInstalling,
+          onclick: () => installUsbDriver(d, d.packages[0]),
+        }, 'Install driver');
+      } else {
+        state = el('span', { class: 'badge is-warn', title: 'No driver for this device is known to the panel. Try the Terminal: apk search' }, 'No driver known');
+      }
+      return el('li', {},
+        el('div', { class: 'usb-main' },
+          el('strong', {}, d.name),
+          el('span', { class: 'muted small' },
+            [d.manufacturer, d.types.join(', '), usbSpeed(d.speed), d.id].filter(Boolean).join(' · ')),
+          d.needs_driver && d.packages.length
+            ? el('span', { class: 'muted small' }, 'Needs ', el('code', {}, d.packages[0]))
+            : d.drivers.length ? el('span', { class: 'muted small' }, 'Driver: ', el('code', {}, d.drivers.join(', '))) : null),
+        state);
+    }));
+  }
+
+  async function installUsbDriver(device, pkg) {
+    if (!confirm(`Install ${pkg} for ${device.name}? It downloads from downloads.openwrt.org, so the Yún needs to be online, and uses a little of its flash.`)) return;
+    usbInstalling = true;
+    refreshUsb();
+    const wrap = $('#usb-log-wrap'), out = $('#usb-log');
+    wrap.hidden = false;
+    wrap.open = true;
+    $('#usb-log-title').textContent = `Installing ${pkg}…`;
+    out.textContent = '';
+    try {
+      const { id } = await api.call('yun', 'usb_install', { package: pkg });
+      const decoder = new TextDecoder();
+      let offset = 0, r;
+      do {
+        await new Promise((res) => setTimeout(res, 500));
+        r = await api.call('yun', 'shell_poll', { id, offset });
+        offset = r.offset;
+        out.textContent += decoder.decode(base64Bytes(r.output || ''), { stream: !r.done });
+        out.scrollTop = out.scrollHeight;
+      } while (!r.done);
+      if (r.rc === 0) {
+        $('#usb-log-title').textContent = `Installed ${pkg}`;
+        toast(`${pkg} installed`);
+      } else {
+        $('#usb-log-title').textContent = `Couldn't install ${pkg}`;
+        toast(`Couldn't install ${pkg}: see the details`, true);
+      }
+    } catch (err) {
+      if (err.code === 'auth') return signedOut();
+      $('#usb-log-title').textContent = `Couldn't install ${pkg}`;
+      out.textContent += err.message + '\n';
+    } finally {
+      usbInstalling = false;
+      refreshUsb();
     }
   }
 
@@ -870,6 +960,7 @@
 
   function signedOut() {
     clearInterval(pollTimer);
+    clearInterval(usbTimer);
     clearTimeout(clockTimer);
     clearInterval(dataTimer);
     api.logout();

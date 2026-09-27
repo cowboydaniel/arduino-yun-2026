@@ -8,6 +8,7 @@
 #   cmake .. -DUCI_SUPPORT=OFF -DUBUS_SUPPORT=OFF -DULOOP_SUPPORT=OFF \
 #     -DRTNL_SUPPORT=OFF -DNL80211_SUPPORT=OFF && make
 
+import base64
 import json
 import os
 import socket
@@ -246,6 +247,81 @@ class RpcdPluginTest(unittest.TestCase):
         self.assertIn('error', self.call('shell_start', {'command': '   '}))
         self.assertIn('error', self.call('shell_poll', {'id': '../../etc/passwd', 'offset': 0}))
         self.assertIn('error', self.call('shell_stop', {'id': 'zz'}))
+
+    def make_usb(self):
+        root = os.path.join(self.tmp.name, 'usb')
+        drivers = os.path.join(self.tmp.name, 'drivers')
+
+        def dev(name, vid, pid, product, interfaces, dev_class='00', speed='12'):
+            d = os.path.join(root, name)
+            os.makedirs(d)
+            for attr, value in (('idVendor', vid), ('idProduct', pid), ('bDeviceClass', dev_class),
+                                ('speed', speed), ('product', product)):
+                if value is not None:
+                    with open(os.path.join(d, attr), 'w') as f:
+                        f.write(value + '\n')
+            for i, (cls, sub, proto, driver) in enumerate(interfaces):
+                idir = os.path.join(d, f'{name}:1.{i}')
+                os.makedirs(idir)
+                for attr, value in (('bInterfaceClass', cls), ('bInterfaceSubClass', sub),
+                                    ('bInterfaceProtocol', proto)):
+                    with open(os.path.join(idir, attr), 'w') as f:
+                        f.write(value + '\n')
+                if driver:
+                    os.makedirs(os.path.join(drivers, driver), exist_ok=True)
+                    os.symlink(os.path.join(drivers, driver), os.path.join(idir, 'driver'))
+
+        dev('1-1', '05e3', '0608', 'USB2.0 Hub', [('09', '00', '00', 'hub')], dev_class='09', speed='480')
+        dev('1-1.4', '058f', '6366', 'Flash Reader', [('08', '06', '50', 'usb-storage')], speed='480')
+        dev('1-1.1', '2341', '0043', 'Arduino Uno', [('02', '02', '01', 'cdc_acm'), ('0a', '00', '00', 'cdc_acm')])
+        dev('1-1.2', '1a86', '7523', 'USB Serial', [('ff', '01', '02', None)])
+        dev('1-1.3', '046d', '0825', None, [('0e', '01', '00', None), ('0e', '02', '00', None), ('01', '01', '00', None)],
+            dev_class='ef', speed='480')
+        dev('1-1.3.1', '0e8d', '7612', '802.11ac WLAN', [('ff', 'ff', 'ff', None)], speed='480')
+        os.makedirs(os.path.join(root, '1-1.1:1.0'), exist_ok=True)     # interfaces are listed at the top too
+        os.makedirs(os.path.join(root, 'usb1'))
+        self.env['YUN_USB_SYSFS'] = root
+
+    def test_usb_devices(self):
+        self.make_usb()
+        devices = {d['path']: d for d in self.call('usb_devices')['devices']}
+        self.assertEqual(sorted(devices), ['1-1.1', '1-1.2', '1-1.3', '1-1.3.1', '1-1.4'])   # no hubs
+        self.assertTrue(devices['1-1.4']['builtin'])
+        self.assertFalse(devices['1-1.4']['needs_driver'])
+        uno = devices['1-1.1']
+        self.assertEqual((uno['name'], uno['id'], uno['drivers'], uno['needs_driver'], uno['packages']),
+                         ('Arduino Uno', '2341:0043', ['cdc_acm'], False, []))
+        self.assertEqual(uno['types'], ['Communications'])
+        self.assertEqual(devices['1-1.2']['packages'], ['kmod-usb-serial-ch341'])
+        cam = devices['1-1.3']
+        self.assertEqual((cam['name'], cam['needs_driver'], cam['packages']),
+                         ('USB device 046d:0825', True, ['kmod-video-uvc']))
+        self.assertEqual(cam['types'], ['Video', 'Audio'])
+        self.assertEqual(devices['1-1.3.1']['packages'], ['kmod-mt76x2u'])
+        self.assertEqual(devices['1-1.3.1']['speed'], 480)
+
+    def test_usb_install_only_known_packages(self):
+        for bad in ('', 'luci', 'kmod-usb-serial-ch341; reboot', 'kmod-video-uvc kmod-evil'):
+            self.assertIn('error', self.call('usb_install', {'package': bad}))
+        bin_dir = os.path.join(self.tmp.name, 'apkbin')
+        os.makedirs(bin_dir)
+        with open(os.path.join(bin_dir, 'apk'), 'w') as f:
+            f.write('#!/bin/sh\necho "apk $*"\n')
+        os.chmod(os.path.join(bin_dir, 'apk'), 0o755)
+        self.env['PATH'] = bin_dir + os.pathsep + self.env['PATH']
+        job = self.call('usb_install', {'package': 'kmod-usb-serial-ch341'})
+        self.assertIn('id', job, job)
+        deadline = time.time() + 10
+        out, offset = b'', 0
+        while time.time() < deadline:
+            r = self.call('shell_poll', {'id': job['id'], 'offset': offset})
+            out += base64.b64decode(r['output'])
+            offset = r['offset']
+            if r['done']:
+                break
+            time.sleep(0.2)
+        self.assertEqual(out.decode(), 'apk add kmod-usb-serial-ch341\n')
+        self.assertEqual(r['rc'], 0)
 
     def test_update_progress(self):
         # The paths are fixed; save whatever a real update left there.

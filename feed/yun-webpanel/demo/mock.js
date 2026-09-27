@@ -12,6 +12,7 @@
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const jobs = {};
   let update = null;
+  let usbInstalled = false;
   const OUTPUT = {
     free: '              total        used        free      shared  buff/cache   available\nMem:          55624       24310       18204         92       13110       27870\nSwap:         27808           0       27808\n',
     'df -h': 'Filesystem                Size      Used Available Use% Mounted on\n/dev/root                 5.8M      5.8M         0 100% /rom\ntmpfs                    27.2M    312.0K     26.9M   1% /tmp\n/dev/mtdblock5            5.6M      1.9M      3.7M  34% /overlay\n/dev/sda1                58.9G      1.1G     57.8G   2% /mnt/sda1\n',
@@ -103,6 +104,18 @@
           const res = { output: btoa(String.fromCharCode(...chunk)), offset, done };
           if (done) { Object.assign(res, { rc: j.stopped ? null : j.rc, cwd: j.cwd, truncated: false }); delete jobs[params.id]; }
           return res;
+        }
+        case 'usb_devices': return { devices: [
+          { path: '1-1.4', id: '058f:6366', name: 'Flash Reader', builtin: true, types: ['Storage'], drivers: ['usb-storage'], needs_driver: false, packages: [], speed: 480 },
+          { path: '1-1.1', id: '2341:0043', name: 'Arduino Uno', manufacturer: 'Arduino (www.arduino.cc)', builtin: false, types: ['Communications'], drivers: ['cdc_acm'], needs_driver: false, packages: [], speed: 12 },
+          { path: '1-1.2', id: '0e8d:7612', name: '802.11ac WLAN', manufacturer: 'MediaTek Inc.', builtin: false, types: ['Vendor specific'], drivers: [], needs_driver: !usbInstalled, packages: usbInstalled ? [] : ['kmod-mt76x2u'], speed: 480 },
+          { path: '1-1.3', id: '046d:0825', name: 'USB device 046d:0825', builtin: false, types: ['Video', 'Audio'], drivers: [], needs_driver: true, packages: ['kmod-video-uvc'], speed: 480 },
+        ] };
+        case 'usb_install': {
+          const id = Math.random().toString(16).slice(2, 18).padEnd(16, '0');
+          jobs[id] = { out: new TextEncoder().encode(`(1/2) Installing kmod-mt76-core (6.12.94-r1)\n(2/2) Installing ${params.package} (6.12.94-r1)\nOK: 11 MiB in 184 packages\n`), rc: 0, cwd: '/tmp', at: Date.now() + 1500 };
+          usbInstalled = true;
+          return { id };
         }
         case 'shell_stop': if (jobs[params.id]) jobs[params.id].stopped = true; return {};
       }
