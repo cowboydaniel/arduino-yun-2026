@@ -1,0 +1,45 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y cmake libjson-c-dev shellcheck
+
+      # The rpcd plugin and REST handler run under ucode, and the first-boot
+      # scripts use uci: build both for the host.
+      - name: Build ucode, libubox and uci
+        run: |
+          set -e
+          mkdir -p ~/host && cd ~/host
+          git clone --depth 1 https://github.com/jow-/ucode.git
+          git clone --depth 1 https://git.openwrt.org/project/libubox.git
+          git clone --depth 1 https://git.openwrt.org/project/uci.git
+          cmake -S ucode -B ucode/build -DUCI_SUPPORT=OFF -DUBUS_SUPPORT=OFF -DULOOP_SUPPORT=OFF \
+            -DRTNL_SUPPORT=OFF -DNL80211_SUPPORT=OFF -DDEBUG_SUPPORT=OFF -DLOG_SUPPORT=OFF -DDIGEST_SUPPORT=OFF
+          make -C ucode/build -j"$(nproc)"
+          cmake -S libubox -B libubox/build -DBUILD_LUA=OFF -DBUILD_EXAMPLES=OFF -DCMAKE_INSTALL_PREFIX="$HOME/host/root"
+          make -C libubox/build -j"$(nproc)" install
+          cmake -S uci -B uci/build -DBUILD_LUA=OFF -DCMAKE_INSTALL_PREFIX="$HOME/host/root" -DCMAKE_PREFIX_PATH="$HOME/host/root"
+          make -C uci/build -j"$(nproc)" install
+
+      - name: Unit tests
+        env:
+          UCODE_BUILD: /home/runner/host/ucode/build
+          UCI_BIN: /home/runner/host/root/bin/uci
+          LD_LIBRARY_PATH: /home/runner/host/root/lib
+        run: python3 -m unittest discover -v -s tests -p 'test_*.py'
+
+      - name: Shell scripts
+        run: |
+          shellcheck -s sh -S error \
+            feed/*/files/usr/bin/* feed/yun-base/files/usr/share/yun/gpio.sh \
+            feed/*/files/etc/uci-defaults/* feed/yun-base/files/etc/rc.button/* \
+            tools/yun-migrate scripts/build.sh
