@@ -201,6 +201,18 @@
             <p class="muted">Turn the Yún back into an open access point called <strong id="ap-ssid">Arduino Yun</strong>, reachable at <code>192.168.240.1</code>. Holding WLAN RST for 5 seconds does the same.</p>
             <div class="card-actions"><button class="btn btn-danger" id="ap-btn">Switch to setup mode</button></div>
           </article>
+          <article class="card">
+            <header class="card-head"><h2>Direct network</h2><span class="badge" id="direct-badge" hidden></span></header>
+            <p class="muted">Keep the Yún's own network, <strong id="direct-ssid">Arduino Yun</strong>, on while it's connected to yours, with a password. Join it from a phone or laptop and open <code>http://192.168.240.1</code>: handy on school and work networks, which often stop devices reaching each other.</p>
+            <form id="direct-form">
+              <label class="field"><span>Password</span><input id="direct-key" type="password" minlength="8" maxlength="63" autocomplete="new-password" placeholder="8 to 63 characters"></label>
+              <div class="card-actions">
+                <button class="btn btn-primary" type="submit" id="direct-on">Turn on</button>
+                <button class="btn" type="button" id="direct-off" hidden>Turn off</button>
+              </div>
+            </form>
+            <p class="muted small">It uses the same channel as your network, so it's there while the Yún is connected. If your network is gone at boot, the open setup network takes over as usual.</p>
+          </article>
           <article class="card span-2" id="vpn-card">
             <header class="card-head"><h2>VPN (WireGuard)</h2><span class="badge" id="vpn-badge" hidden></span></header>
             <div id="vpn-install" hidden>

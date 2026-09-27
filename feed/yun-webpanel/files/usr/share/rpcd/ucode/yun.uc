@@ -492,6 +492,7 @@ const methods = {
 				ifname: wifname,
 				ssid: info.ssid ?? uci.get('wireless', client ? 'yun_sta' : 'yun_ap', 'ssid'),
 				ap_ssid: uci.get('wireless', 'yun_ap', 'ssid'),
+				direct: uci.get('arduino', '@arduino[0]', 'direct_ap') == '1',
 				connected: client ? (info.stations ?? 0) > 0 : true,
 				signal: client ? info.signal : null,
 				quality: client ? info.quality : null,
@@ -593,6 +594,24 @@ const methods = {
 				return { error: 'Invalid characters' };
 			// Reply first: switching networks drops this connection.
 			spawn_later(2, 'exec yun-wifi client "$1" "$2" "$3"', [ ssid, enc, key ]);
+			return { ok: true };
+		}
+	},
+
+	// The Yun's own network, with a password, next to the client.
+	wifi_direct: {
+		args: { enabled: false, key: '' },
+		call: function(req) {
+			let key = req.args.key ?? '';
+			if (!req.args.enabled) {
+				spawn_later(1, 'exec yun-wifi direct off');
+				return { ok: true };
+			}
+			if (type(key) != 'string' || length(key) < 8 || length(key) > 63)
+				return { error: 'The password must be 8 to 63 characters' };
+			if (bad_chars(key))
+				return { error: 'Invalid characters' };
+			spawn_later(1, 'exec yun-wifi direct on "$1"', [ key ]);
 			return { ok: true };
 		}
 	},

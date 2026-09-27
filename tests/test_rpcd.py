@@ -125,6 +125,12 @@ class RpcdPluginTest(unittest.TestCase):
         self.assertEqual(self.calls(), [f"yun-wifi client {ssid} psk2 pa ss'word"])
         self.assertFalse(os.path.exists('/tmp/pwned'))
 
+    def test_wifi_direct(self):
+        self.assertIn('error', self.call('wifi_direct', {'enabled': True, 'key': 'short'}))
+        self.assertEqual(self.call('wifi_direct', {'enabled': True, 'key': "pa ss'$(id)"}), {'ok': True})
+        self.assertEqual(self.call('wifi_direct', {'enabled': False}), {'ok': True})
+        self.assertEqual(self.calls(), ["yun-wifi direct on pa ss'$(id)", 'yun-wifi direct off'])
+
     def test_wifi_client_enterprise(self):
         base = {'ssid': 'eduroam', 'encryption': 'wpa3-mixed', 'eap': 'peap', 'phase2': 'MSCHAPV2',
                 'identity': 'dan@example.edu', 'password': "p@ss 'w$(id)"}

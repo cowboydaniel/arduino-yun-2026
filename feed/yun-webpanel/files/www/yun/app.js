@@ -212,6 +212,10 @@
       ['Received', w.rx_bytes != null && bytes(w.rx_bytes)], ['Sent', w.tx_bytes != null && bytes(w.tx_bytes)],
     ]);
     $('#ap-ssid').textContent = w.ap_ssid || 'Arduino Yun';
+    $('#direct-ssid').textContent = w.ap_ssid || 'Arduino Yun';
+    setBadge($('#direct-badge'), w.direct ? 'On' : 'Off', w.direct ? 'ok' : '');
+    $('#direct-off').hidden = !w.direct;
+    $('#direct-on').textContent = w.direct ? 'Change password' : 'Turn on';
 
     // Ethernet
     const e = s.ethernet || {};
@@ -1103,6 +1107,23 @@
     $('#join-cancel').addEventListener('click', () => ($('#join-form').hidden = true));
     $('#join-enc').addEventListener('change', updateKeyField);
     $('#join-eap-type').addEventListener('change', updatePhase2);
+    $('#direct-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const key = $('#direct-key').value;
+      if (key.length < 8) return toast('The password must be 8 to 63 characters', true);
+      try {
+        await api.call('yun', 'wifi_direct', { enabled: true, key });
+        $('#direct-key').value = '';
+        toast(`${$('#direct-ssid').textContent} is on, with that password`);
+        setTimeout(poll, 2500);
+      } catch (err) {
+        toast(err.message, true);
+      }
+    });
+    $('#direct-off').addEventListener('click', async () => {
+      await api.call('yun', 'wifi_direct', { enabled: false }).catch((e) => toast(e.message, true));
+      setTimeout(poll, 2500);
+    });
     $('#ap-btn').addEventListener('click', async () => {
       if (!confirm('Switch to setup mode? The Yún leaves its Wi-Fi network and starts its own.')) return;
       await api.call('yun', 'wifi_setup_ap').catch((e) => toast(e.message, true));

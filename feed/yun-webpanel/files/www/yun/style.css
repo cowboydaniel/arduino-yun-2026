@@ -330,3 +330,4 @@ textarea { font: .82rem/1.45 var(--mono); resize: vertical; }
   .term { height: 52vh; font-size: .78rem; }
   .term-prompt { display: none; }
 }
+#direct-form { margin-bottom: .9rem; }

@@ -6,7 +6,7 @@
   let wifi = {
     mode: 'client', connected: true, ssid: 'Workshop', signal: -58, quality: 72, channel: 6,
     encryption: 'psk2', ipv4: '192.168.1.45', mac: '90:A2:DA:F0:54:D2',
-    rx_bytes: 1080000, tx_bytes: 94600, ap_ssid: 'Arduino Yun-90A2DAF054D2',
+    rx_bytes: 1080000, tx_bytes: 94600, ap_ssid: 'Arduino Yun-90A2DAF054D2', direct: false,
   };
   let settings = { hostname: 'workbench-yun', zonename: 'Australia/Sydney', rest_secure: true };
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -65,6 +65,7 @@
           ] };
         case 'wifi_client': wifi = { ...wifi, ssid: params.ssid, encryption: params.encryption }; return {};
         case 'wifi_setup_ap': return {};
+        case 'wifi_direct': wifi.direct = !!params.enabled; return {};
         case 'sketch_flash':
           await wait(2500);
           return { code: 0, output: 'avrdude: AVR device initialized and ready to accept instructions\navrdude: device signature = 0x1e9587 (probably m32u4)\navrdude: writing 28672 bytes flash ...\navrdude: 28672 bytes of flash verified\n\navrdude done.  Thank you.\n' };

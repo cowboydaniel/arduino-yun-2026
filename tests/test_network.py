@@ -328,6 +328,53 @@ Endpoint = vpn.example.com:51820
             self.assertIn(why, p.stderr)
         self.assertIsNone(self.uci('network.yunvpn'))
 
+    def test_direct_network(self):
+        self.first_boot()
+        yun_wifi = os.path.join(BASE, 'usr', 'bin', 'yun-wifi')
+        ssid = self.uci('wireless.yun_ap.ssid')
+        self.run_script(yun_wifi, 'client', 'Home', 'psk2', 'password1')
+        self.assertEqual(self.uci('wireless.yun_ap.disabled'), '1')
+
+        self.run_script(yun_wifi, 'direct', 'on', "yun pass'1")
+        self.assertEqual(self.uci('wireless.yun_ap.disabled'), '0')         # next to the client
+        self.assertEqual(self.uci('wireless.yun_sta.disabled'), '0')
+        self.assertEqual(self.uci('wireless.yun_ap.encryption'), 'psk2')
+        self.assertEqual(self.uci('wireless.yun_ap.key'), "yun pass'1")
+        self.assertEqual(self.uci('wireless.yun_ap.ssid'), ssid)
+        self.assertEqual(self.uci('arduino.@arduino[0].direct_ap'), '1')
+
+        # Setup mode is the open network, as always ...
+        self.run_script(yun_wifi, 'fallback')
+        self.assertEqual(self.uci('wireless.yun_ap.encryption'), 'none')
+        self.assertIsNone(self.uci('wireless.yun_ap.key'))
+        # ... and back as a client, the direct network has its password again.
+        self.run_script(yun_wifi, 'retry')
+        self.assertEqual(self.uci('wireless.yun_ap.disabled'), '0')
+        self.assertEqual(self.uci('wireless.yun_ap.encryption'), 'psk2')
+        self.run_script(yun_wifi, 'client', 'Other', 'psk2', 'password2')
+        self.assertEqual(self.uci('wireless.yun_ap.disabled'), '0')
+        self.assertEqual(self.uci('wireless.yun_ap.key'), "yun pass'1")
+
+        # sync (at boot, after an update) keeps it that way.
+        subprocess.run([UCI, '-c', self.conf, 'set', 'wireless.yun_ap.disabled=1'], check=True)
+        subprocess.run([UCI, '-c', self.conf, 'set', 'wireless.yun_ap.encryption=none'], check=True)
+        subprocess.run([UCI, '-c', self.conf, 'commit', 'wireless'], check=True)
+        self.run_script(yun_wifi, 'sync', '--no-reload')
+        self.assertEqual(self.uci('wireless.yun_ap.disabled'), '0')
+        self.assertEqual(self.uci('wireless.yun_ap.encryption'), 'psk2')
+
+        self.run_script(yun_wifi, 'direct', 'off')
+        self.assertEqual(self.uci('wireless.yun_ap.disabled'), '1')
+        self.assertEqual(self.uci('wireless.yun_ap.encryption'), 'none')
+        self.assertIsNone(self.uci('arduino.@arduino[0].direct_ap_key'))
+
+    def test_direct_network_needs_a_password(self):
+        self.first_boot()
+        p = subprocess.run(['sh', os.path.join(BASE, 'usr', 'bin', 'yun-wifi'), 'direct', 'on', 'short'],
+                           capture_output=True, text=True, env=self.env)
+        self.assertEqual(p.returncode, 1)
+        self.assertIsNone(self.uci('arduino.@arduino[0].direct_ap_key'))
+
     def test_client_needs_a_key(self):
         self.first_boot()
         p = subprocess.run(['sh', os.path.join(BASE, 'usr', 'bin', 'yun-wifi'), 'client', 'Home', 'psk2'],

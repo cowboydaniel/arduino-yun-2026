@@ -9,7 +9,7 @@
 		},
 		"write": {
 			"ubus": {
-				"yun": [ "wifi_client", "wifi_setup_ap", "sketch_flash", "mcu_reset",
+				"yun": [ "wifi_client", "wifi_direct", "wifi_setup_ap", "sketch_flash", "mcu_reset",
 				         "bridge_put", "bridge_delete", "mailbox_send", "settings_set",
 				         "password_set", "update_apply",
 				         "shell_start", "shell_poll", "shell_stop", "usb_install",
