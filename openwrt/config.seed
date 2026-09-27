@@ -1,3 +1,10 @@
 CONFIG_TARGET_ath79=y
 CONFIG_TARGET_ath79_generic=y
 CONFIG_TARGET_ath79_generic_DEVICE_arduino_yun-2026=y
+# Not used on a Yun, which joins networks rather than routing for them:
+# PPP/PPPoE (DSL uplinks), the IPv6 router service, and uboot-envtools
+# (its partition is read-only here, and it only complained at boot).
+# CONFIG_PACKAGE_ppp is not set
+# CONFIG_PACKAGE_ppp-mod-pppoe is not set
+# CONFIG_PACKAGE_odhcpd-ipv6only is not set
+# CONFIG_PACKAGE_uboot-envtools is not set

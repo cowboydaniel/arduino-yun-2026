@@ -40,6 +40,7 @@
       <a href="#network" data-view="network" class="nav-link"><svg viewBox="0 0 24 24"><path d="M12 18.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3M2.1 8.6a14.5 14.5 0 0 1 19.8 0l-1.4 1.4a12.5 12.5 0 0 0-17 0zm3.5 3.5a9.5 9.5 0 0 1 12.8 0L17 13.5a7.5 7.5 0 0 0-10 0zm3.5 3.5a4.5 4.5 0 0 1 5.8 0l-1.4 1.4a2.5 2.5 0 0 0-3 0z"/></svg><span>Network</span></a>
       <a href="#sketch" data-view="sketch" class="nav-link"><svg viewBox="0 0 24 24"><path d="M9 3h6v2h2a2 2 0 0 1 2 2v2h2v2h-2v2h2v2h-2v2a2 2 0 0 1-2 2h-2v2h-2v-2h-2v2H9v-2H7a2 2 0 0 1-2-2v-2H3v-2h2v-2H3V9h2V7a2 2 0 0 1 2-2h2zm-2 4v10h10V7z"/></svg><span>Sketch</span></a>
       <a href="#bridge" data-view="bridge" class="nav-link"><svg viewBox="0 0 24 24"><path d="M7 7h10v2H7zm0 4h10v2H7zm0 4h6v2H7zM4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1m1 2v14h14V5z"/></svg><span>Bridge</span></a>
+      <a href="#terminal" data-view="terminal" class="nav-link"><svg viewBox="0 0 24 24"><path d="M4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1m1 2v14h14V5zm2.3 3.3L10.9 12l-3.6 3.7-1.4-1.4 2.2-2.3-2.2-2.3zM12 15h6v2h-6z"/></svg><span>Terminal</span></a>
       <a href="#settings" data-view="settings" class="nav-link"><svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8m0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4M10.7 2h2.6l.5 2.6 1.6.7 2.2-1.5 1.8 1.8-1.5 2.2.7 1.6 2.6.5v2.6l-2.6.5-.7 1.6 1.5 2.2-1.8 1.8-2.2-1.5-1.6.7-.5 2.6h-2.6l-.5-2.6-1.6-.7-2.2 1.5-1.8-1.8 1.5-2.2-.7-1.6-2.6-.5v-2.6l2.6-.5.7-1.6-1.5-2.2 1.8-1.8 2.2 1.5 1.6-.7z"/></svg><span>Settings</span></a>
       <div class="sidebar-foot">
         <button class="btn btn-ghost btn-block" id="logout">Sign out</button>
@@ -243,6 +244,29 @@
         </div>
       </section>
 
+      <!-- Terminal -->
+      <section class="view" data-view="terminal" hidden>
+        <article class="card term-card">
+          <header class="card-head">
+            <h2>Terminal</h2>
+            <div class="term-tools">
+              <button class="btn btn-ghost" type="button" id="term-wrap" aria-pressed="false" title="Wrap long lines">Wrap</button>
+              <button class="btn btn-ghost" type="button" id="term-clear">Clear</button>
+              <button class="btn btn-danger" type="button" id="term-stop" hidden>Stop</button>
+            </div>
+          </header>
+          <pre class="term" id="term-out" tabindex="0" aria-live="polite" aria-label="Command output"></pre>
+          <form class="term-form" id="term-form" autocomplete="off">
+            <label class="term-prompt" for="term-input"><span id="term-cwd">/root</span> #</label>
+            <input id="term-input" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send"
+                   placeholder="Type a Linux command" aria-label="Command">
+            <button class="btn btn-primary" type="submit" id="term-run">Run</button>
+          </form>
+          <div class="chips term-chips" id="term-chips"></div>
+          <p class="muted small">Commands run as <code>root</code> on the Yún, one at a time, and can't read input: use <code>top -bn1</code> rather than <code>top</code>, and <code>uci</code> or <code>sed</code> rather than an editor. ↑ and ↓ go through earlier commands. Output stops at 1 MB.</p>
+        </article>
+      </section>
+
       <!-- Settings -->
       <section class="view" data-view="settings" hidden>
         <div class="grid">
@@ -272,6 +296,11 @@
             <div class="card-actions">
               <button class="btn" id="fw-check">Check for updates</button>
               <button class="btn btn-primary" id="fw-apply" hidden>Install update</button>
+            </div>
+            <div class="progress" id="fw-progress" hidden>
+              <div class="progress-head"><span id="fw-step">Starting…</span><span id="fw-pct"></span></div>
+              <div class="meter"><span id="fw-bar"></span></div>
+              <p class="muted small" id="fw-note"></p>
             </div>
           </article>
           <article class="card">

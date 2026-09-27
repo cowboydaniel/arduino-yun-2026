@@ -349,15 +349,31 @@ class YunUpdateTest(unittest.TestCase):
         self.assertIn('"available":false', self.update('check', '--json').stdout)
         self.assertIn('Up to date', self.update('check').stdout)
 
+    def stage(self):
+        with open('/tmp/yun-update/stage') as f:
+            return f.read().strip()
+
     def test_apply_frees_memory_then_installs(self):
         p = self.update('apply')
         self.assertEqual(p.returncode, 0, p.stderr)
+        # The web panel stays up to show the progress; sysupgrade's own hook
+        # stops it before writing the flash.
         self.assertEqual(self.recorded(), [
-            'uhttpd stop', 'rpcd stop', 'umdns stop', 'cron stop', 'odhcpd stop',
+            'umdns stop', 'cron stop', 'odhcpd stop',
             'sysupgrade -T /tmp/yun-update/sysupgrade.bin',
             'dnsmasq stop',        # only after the download, which needs DNS
             'sysupgrade -v /tmp/yun-update/sysupgrade.bin'])
         self.assertIn('download verified', p.stdout)
+        self.assertEqual(self.stage(), 'installing')
+        with open('/tmp/yun-update/total') as f:
+            self.assertEqual(f.read().strip(), '11862289')
+
+    def test_tight_memory_stops_the_web_panel_too(self):
+        self.set_memory(16000)     # 11584 KB image + 5120 KB margin needed
+        p = self.update('apply')
+        calls = self.recorded()
+        self.assertEqual(calls[:5], ['umdns stop', 'cron stop', 'odhcpd stop', 'uhttpd stop', 'rpcd stop'])
+        self.assertIn('stopping the web panel', p.stdout)
 
     def test_not_enough_memory(self):
         self.set_memory(12000)
@@ -366,7 +382,8 @@ class YunUpdateTest(unittest.TestCase):
         self.assertIn('not enough free RAM', p.stderr)
         calls = self.recorded()
         self.assertFalse(any(c.startswith('sysupgrade') for c in calls))
-        self.assertEqual(calls[-5:], ['uhttpd start', 'rpcd start', 'umdns start', 'cron start', 'odhcpd start'])
+        self.assertEqual(calls[-5:], ['umdns start', 'cron start', 'odhcpd start', 'uhttpd start', 'rpcd start'])
+        self.assertEqual(self.stage(), 'failed')
 
     def test_damaged_download_is_not_installed(self):
         p = self.update('apply', IMAGE_DATA='DAMAGED')
@@ -374,7 +391,9 @@ class YunUpdateTest(unittest.TestCase):
         self.assertIn('damaged', p.stderr)
         calls = self.recorded()
         self.assertFalse(any(c.startswith('sysupgrade') for c in calls))
-        self.assertIn('uhttpd start', calls)             # the panel comes back
+        self.assertNotIn('uhttpd stop', calls)           # the panel stayed up to show it
+        self.assertIn('odhcpd start', calls)
+        self.assertEqual(self.stage(), 'failed')
         self.assertFalse(os.path.exists('/tmp/yun-update/sysupgrade.bin'))
 
     def test_failed_sysupgrade_restarts_services(self):
@@ -382,4 +401,4 @@ class YunUpdateTest(unittest.TestCase):
         self.assertEqual(p.returncode, 1)
         calls = self.recorded()
         self.assertIn('dnsmasq start', calls)
-        self.assertIn('uhttpd start', calls)
+        self.assertIn('umdns start', calls)

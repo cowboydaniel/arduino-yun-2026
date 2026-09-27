@@ -174,6 +174,93 @@ class RpcdPluginTest(unittest.TestCase):
         self.assertIn('error', self.call('mailbox_send', {'message': 'hi'}))
 
 
+    # --- terminal ---
+
+    def shell(self, command, cwd='/tmp', timeout=10):
+        import base64
+        job = self.call('shell_start', {'command': command, 'cwd': cwd})
+        self.assertIn('id', job, job)
+        out, offset = b'', 0
+        deadline = time.monotonic() + timeout
+        while True:
+            r = self.call('shell_poll', {'id': job['id'], 'offset': offset})
+            self.assertNotIn('error', r, r)
+            out += base64.b64decode(r['output'])
+            offset = r['offset']
+            if r['done']:
+                return out.decode('utf-8', 'replace'), r
+            self.assertLess(time.monotonic(), deadline, 'command never finished')
+            time.sleep(0.2)
+
+    def test_shell_output_exit_code_and_cwd(self):
+        out, r = self.shell('echo hello; echo oops >&2; cd /usr; exit 3')
+        self.assertEqual(out, 'hello\noops\n')
+        self.assertEqual(r['rc'], 3)
+        self.assertEqual(r['cwd'], '/usr')
+
+    def test_shell_keeps_the_directory_and_quoting(self):
+        out, r = self.shell("pwd; printf '%s|' \"a b\" '$HOME' \"it's\"", cwd='/usr')
+        self.assertEqual(out, "/usr\na b|$HOME|it's|")
+        out, r = self.shell('pwd', cwd='/no/such/dir')
+        self.assertEqual(out.strip(), '/root' if os.path.isdir('/root') else out.strip())
+
+    def test_shell_binary_and_utf8(self):
+        out, r = self.shell("printf 'caf\\303\\251 \\377 end'")
+        self.assertTrue(out.startswith('café'), out)
+        self.assertTrue(out.endswith('end'))
+
+    def test_shell_output_is_capped(self):
+        out, r = self.shell('yes', timeout=30)
+        self.assertEqual(len(out.encode()), 1048576)
+        self.assertTrue(r['truncated'])
+
+    def test_shell_stop(self):
+        job = self.call('shell_start', {'command': 'echo started; sleep 60; echo never', 'cwd': '/tmp'})
+        time.sleep(0.5)
+        self.assertEqual(self.call('shell_stop', {'id': job['id']}), {'ok': True})
+        deadline = time.monotonic() + 10
+        while True:
+            r = self.call('shell_poll', {'id': job['id'], 'offset': 0})
+            if r.get('done'):
+                break
+            self.assertLess(time.monotonic(), deadline)
+            time.sleep(0.3)
+        import base64
+        self.assertEqual(base64.b64decode(r['output']), b'started\n')
+        self.assertIsNone(r['rc'])          # stopped, not exited
+
+    def test_shell_rejects_bad_input(self):
+        self.assertIn('error', self.call('shell_start', {'command': '   '}))
+        self.assertIn('error', self.call('shell_poll', {'id': '../../etc/passwd', 'offset': 0}))
+        self.assertIn('error', self.call('shell_stop', {'id': 'zz'}))
+
+    def test_update_progress(self):
+        # The paths are fixed; save whatever a real update left there.
+        os.makedirs('/tmp/yun-update', exist_ok=True)
+        saved = {}
+        for f in ('/tmp/yun-update/stage', '/tmp/yun-update/total',
+                  '/tmp/yun-update/sysupgrade.bin', '/tmp/yun-update.log'):
+            if os.path.exists(f):
+                with open(f, 'rb') as h:
+                    saved[f] = h.read()
+        def restore():
+            for f in ('/tmp/yun-update/stage', '/tmp/yun-update/total',
+                      '/tmp/yun-update/sysupgrade.bin', '/tmp/yun-update.log'):
+                if f in saved:
+                    with open(f, 'wb') as h:
+                        h.write(saved[f])
+                elif os.path.exists(f):
+                    os.unlink(f)
+        self.addCleanup(restore)
+        for f, data in (('/tmp/yun-update/stage', 'downloading\n'), ('/tmp/yun-update/total', '4000\n'),
+                        ('/tmp/yun-update/sysupgrade.bin', 'x' * 1000),
+                        ('/tmp/yun-update.log', 'yun-update: stopping services\nyun-update: downloading Yun 2026.4\n')):
+            with open(f, 'w') as h:
+                h.write(data)
+        self.assertEqual(self.call('update_progress'), {
+            'stage': 'downloading', 'downloaded': 1000, 'total': 4000, 'message': 'downloading Yun 2026.4'})
+
+
 @unittest.skipUnless(os.path.exists(os.path.join(UCODE, 'ucode')), 'no ucode build (set UCODE_BUILD)')
 class RpcdWithBridgeTest(unittest.TestCase):
     def test_datastore_through_real_bridge(self):

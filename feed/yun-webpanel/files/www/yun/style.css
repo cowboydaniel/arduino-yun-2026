@@ -120,7 +120,7 @@ p { margin: 0 0 .75rem; }
 .nav-link:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
 .nav-link.active { background: var(--accent-soft); color: var(--accent-strong); }
 .sidebar-foot { margin-top: auto; }
-.main { padding: 1.75rem clamp(1rem, 3vw, 2.5rem) 3rem; max-width: 1240px; width: 100%; }
+.main { padding: 1.75rem clamp(1rem, 3vw, 2.5rem) 3rem; max-width: 1240px; width: 100%; min-width: 0; }
 .topbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; }
 .topbar p { margin: .15rem 0 0; }
 
@@ -261,6 +261,29 @@ input:focus, select:focus, .btn:focus-visible, .dropzone:focus-within { outline:
 .endpoints { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .4rem; }
 .endpoints code { display: block; padding: .4rem .6rem; overflow-wrap: anywhere; }
 
+/* Terminal */
+.term-card { min-width: 0; }
+.term-tools { display: flex; gap: .4rem; }
+.term {
+  margin: 0; height: min(60vh, 560px); overflow: auto; padding: .8rem .9rem; border-radius: 10px;
+  background: #0d1416; color: #d7e4e6; font: .82rem/1.5 var(--mono);
+  white-space: pre; tab-size: 8;
+}
+.term.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+#fw-note { margin: .5rem 0 0; }
+#term-wrap[aria-pressed="true"] { color: var(--accent-strong); background: var(--accent-soft); }
+.term:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.term:empty::before { content: "Output appears here."; color: #6f8488; }
+.term-cmd { color: #5fd3d9; font-weight: 600; }
+.term-err { color: #f0a35a; }
+.term-form { display: flex; align-items: center; gap: .5rem; margin-top: .75rem; }
+.term-form input { flex: 1; font-family: var(--mono); font-size: 16px; }
+.term-prompt { font: .85rem var(--mono); color: var(--muted); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.term-chips { margin: .75rem 0; }
+.term-chips .chip { cursor: pointer; font: inherit; color: var(--text); }
+.term-chips .chip:hover { border-color: var(--accent); }
+.term-chips code { background: none; padding: 0; }
+
 /* Login */
 .login { min-height: 100vh; display: grid; place-items: center; padding: 1rem; }
 .login-card { width: min(380px, 100%); background: var(--surface); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow); padding: 2rem 1.75rem; text-align: center; }
@@ -289,4 +312,7 @@ input:focus, select:focus, .btn:focus-visible, .dropzone:focus-within { outline:
   .hero-main { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   h1 { font-size: 1.35rem; }
   .toasts { left: 1rem; bottom: 5rem; }
+  .nav-link { padding: .35rem .3rem; }
+  .term { height: 52vh; font-size: .78rem; }
+  .term-prompt { display: none; }
 }

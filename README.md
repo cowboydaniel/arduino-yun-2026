@@ -7,7 +7,7 @@ Modern OpenWrt for the Arduino Yún, with updates and all the old Arduino stuff.
 - OpenWrt 25.12 with a current kernel, installed **in place** from the stock Linino firmware with its own updater. No serial cable, U-Boot prompt or TFTP needed, and U-Boot is never touched. [How it works](docs/design.md).
 - The Bridge library's Linux side, ported to Python 3: existing sketches run unchanged.
 - Uploading sketches over Wi-Fi from the Arduino IDE, or from the web panel.
-- A new web panel: status, Wi-Fi setup, drag and drop sketch upload, the live datastore, settings and firmware updates.
+- A new web panel: status, Wi-Fi setup, drag and drop sketch upload, the live datastore, a terminal for running Linux commands from any browser (phones too), settings, and firmware updates you can follow as they download.
 - The stock REST API (`/arduino`, `/data`, `/mailbox`), the WLAN RST button, the setup access point, and keeping your settings when moving from stock.
 
 ## Installing from the stock firmware
@@ -38,7 +38,7 @@ The stock firmware's SSH server is old. Recent OpenSSH clients need `-o KexAlgor
 
 ## Updating
 
-On Yún 2026, `yun-update check` looks for a newer release, and `yun-update apply` downloads, verifies and installs it, keeping your settings. The web panel's **Settings → Firmware** does the same. Packages you added with `apk` aren't kept across an update.
+On Yún 2026, `yun-update check` looks for a newer release, and `yun-update apply` downloads, verifies and installs it, keeping your settings. The web panel's **Settings → Firmware** does the same, and shows the download's progress and when the Yún is back on the new version. Packages you added with `apk` aren't kept across an update.
 
 ## Layout
 

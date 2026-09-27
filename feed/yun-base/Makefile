@@ -3,7 +3,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=yun-base
-PKG_VERSION:=2026.3
+PKG_VERSION:=2026.4
 PKG_RELEASE:=1
 PKG_LICENSE:=GPL-2.0-or-later
 

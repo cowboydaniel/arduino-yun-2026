@@ -10,6 +10,14 @@
   };
   let settings = { hostname: 'workbench-yun', zonename: 'Australia/Sydney', rest_secure: true };
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const jobs = {};
+  let update = null;
+  const OUTPUT = {
+    free: '              total        used        free      shared  buff/cache   available\nMem:          55624       24310       18204         92       13110       27870\nSwap:         27808           0       27808\n',
+    'df -h': 'Filesystem                Size      Used Available Use% Mounted on\n/dev/root                 5.8M      5.8M         0 100% /rom\ntmpfs                    27.2M    312.0K     26.9M   1% /tmp\n/dev/mtdblock5            5.6M      1.9M      3.7M  34% /overlay\n/dev/sda1                58.9G      1.1G     57.8G   2% /mnt/sda1\n',
+    uptime: ' 14:02:11 up 3 days,  5:04,  load average: 0.08, 0.12, 0.09\n',
+    'ip -br addr': 'lo               UNKNOWN        127.0.0.1/8\neth0             UP             192.168.1.135/24\nphy0-sta0        UP             192.168.1.45/24\n',
+  };
 
   function status() {
     const up = 3 * 86400 + 5 * 3600 + (Date.now() - start) / 1000;
@@ -67,7 +75,35 @@
         case 'settings_set': Object.assign(settings, params); return {};
         case 'password_set': return {};
         case 'update_check': await wait(600); return { current: 'Yún 2026.1', latest: 'Yún 2026.2', available: true };
-        case 'update_apply': return {};
+        case 'update_apply': update = Date.now(); return {};
+        case 'update_progress': {
+          const t = (Date.now() - update) / 1000;
+          if (t > 14) throw new Error('offline');
+          if (t < 2) return { stage: 'checking', downloaded: 0, total: null, message: 'stopping services to free memory for the download' };
+          if (t < 10) return { stage: 'downloading', downloaded: Math.round(11862289 * (t - 2) / 8), total: 11862289, message: 'downloading Yún 2026.4' };
+          if (t < 12) return { stage: 'verifying', downloaded: 11862289, total: 11862289, message: 'download verified' };
+          return { stage: 'installing', downloaded: 11862289, total: 11862289, message: 'installing (6420 KB free)' };
+        }
+        case 'shell_start': {
+          const id = Math.random().toString(16).slice(2, 18).padEnd(16, '0');
+          let out = OUTPUT[params.command] ?? `sh: ${params.command.split(' ')[0]}: not found in the demo\n`;
+          let rc = OUTPUT[params.command] ? 0 : 127, cwd = params.cwd;
+          const cd = params.command.match(/^cd\s*(.*)$/);
+          if (cd) { out = ''; rc = 0; cwd = cd[1] || '/root'; }
+          jobs[id] = { out: new TextEncoder().encode(out), rc, cwd, at: Date.now() };
+          return { id };
+        }
+        case 'shell_poll': {
+          const j = jobs[params.id];
+          if (!j) throw new Error('No such command');
+          const chunk = j.out.slice(params.offset, params.offset + 200);
+          const offset = params.offset + chunk.length;
+          const done = offset >= j.out.length && Date.now() - j.at > 300;
+          const res = { output: btoa(String.fromCharCode(...chunk)), offset, done };
+          if (done) { Object.assign(res, { rc: j.stopped ? null : j.rc, cwd: j.cwd, truncated: false }); delete jobs[params.id]; }
+          return res;
+        }
+        case 'shell_stop': if (jobs[params.id]) jobs[params.id].stopped = true; return {};
       }
       throw new Error(`no mock for ${object}.${method}`);
     },

@@ -10,7 +10,7 @@
 
 'use strict';
 
-import { readfile, writefile, popen, stat, glob, unlink, access } from 'fs';
+import { readfile, writefile, popen, stat, glob, unlink, access, open, mkdir, lsdir } from 'fs';
 import { cursor } from 'uci';
 import * as ubus from 'ubus';
 import * as bridge from 'yun.bridge';
@@ -256,6 +256,76 @@ function root_password_set() {
 	return false;
 }
 
+
+// --- Terminal ---------------------------------------------------------------
+//
+// Each command runs as a background job whose output goes to a file, which
+// the panel polls. Output is capped (a runaway command can't fill /tmp, which
+// is RAM), commands get no input, and the working directory carries over
+// from one command to the next the way the panel passes it back.
+
+const SHELL_DIR = '/tmp/yun-shell';
+const SHELL_MAX_OUTPUT = 1048576;
+const SHELL_MAX_JOBS = 3;
+
+// The job, run by /bin/sh with $1 = directory, $2 = command, $3 = file prefix.
+// The EXIT trap records the exit code and directory even when the command
+// itself runs "exit".
+const SHELL_JOB = `
+{
+	sh -c 'echo $$ > "$3.pid"
+		cd "$1" 2>/dev/null || cd /root
+		trap '"'"'rc=$?; pwd > "$3.cwd"; echo $rc > "$3.rc"'"'"' EXIT
+		eval "$2"' sh "$1" "$2" "$3" </dev/null 2>&1 |
+		head -c ${SHELL_MAX_OUTPUT} > "$3.out"
+	touch "$3.done"
+} >/dev/null 2>&1 &
+`;
+
+function shell_job_path(id) {
+	return match(id ?? '', /^[0-9a-f]{16}$/) ? `${SHELL_DIR}/${id}` : null;
+}
+
+function shell_running() {
+	let n = 0;
+	for (let f in glob(`${SHELL_DIR}/*.pid`))
+		if (!stat(replace(f, /\.pid$/, '.done')))
+			n++;
+	return n;
+}
+
+// Files of jobs nobody has polled for an hour.
+function shell_cleanup() {
+	let old = time() - 3600;
+	for (let f in glob(`${SHELL_DIR}/*`)) {
+		let st = stat(f);
+		if (st && st.mtime < old)
+			unlink(f);
+	}
+}
+
+// Kill a job's process and everything it started.
+function shell_kill_tree(pid) {
+	let children = {};
+	for (let d in lsdir('/proc') ?? []) {
+		if (!match(d, /^[0-9]+$/))
+			continue;
+		let st = readfile(`/proc/${d}/stat`);
+		let m = st ? match(st, /\) \S (\d+)/) : null;
+		if (m)
+			push(children[m[1]] ??= [], d);
+	}
+	let all = [], todo = [ '' + pid ];
+	while (length(todo)) {
+		let p = shift(todo);
+		push(all, p);
+		for (let c in children[p] ?? [])
+			push(todo, c);
+	}
+	system([ 'kill', '-TERM', ...all ]);
+	system([ 'sh', '-c', 'sleep 1; kill -KILL "$@" 2>/dev/null', 'sh', ...all ]);
+}
+
 const methods = {
 	status: {
 		call: function() {
@@ -466,6 +536,69 @@ const methods = {
 		}
 	},
 
+	shell_start: {
+		args: { command: '', cwd: '' },
+		call: function(req) {
+			let cmd = req.args.command, cwd = req.args.cwd ?? '/root';
+			if (type(cmd) != 'string' || trim(cmd) == '' || length(cmd) > 4096)
+				return { error: 'Type a command' };
+			if (index(cmd, '\u0000') >= 0 || type(cwd) != 'string' || index(cwd, '\u0000') >= 0)
+				return { error: 'Invalid characters' };
+			mkdir(SHELL_DIR, 0700);
+			shell_cleanup();
+			if (shell_running() >= SHELL_MAX_JOBS)
+				return { error: `Already running ${SHELL_MAX_JOBS} commands; stop one first` };
+			let id = hexenc(readfile('/dev/urandom', 8));
+			let path = shell_job_path(id);
+			system([ '/bin/sh', '-c', SHELL_JOB, 'sh', cwd, cmd, path ]);
+			return { id };
+		}
+	},
+
+	shell_poll: {
+		args: { id: '', offset: 0 },
+		call: function(req) {
+			let path = shell_job_path(req.args.id);
+			if (!path || !stat(`${path}.out`))
+				return { error: 'No such command' };
+			let offset = int(req.args.offset ?? 0);
+			let f = open(`${path}.out`, 'r');
+			f.seek(offset);
+			let output = f.read(65536) ?? '';
+			f.close();
+			offset += length(output);
+			let done = stat(`${path}.done`) != null;
+			let size = stat(`${path}.out`)?.size ?? 0;
+			// Base64: output can be any bytes, and a chunk can end halfway
+			// through a UTF-8 character; the panel decodes it as a stream.
+			let res = { output: b64enc(output), offset, done: done && offset >= size };
+			if (res.done) {
+				let rc = trim_read(`${path}.rc`);
+				res.rc = (rc != null && !stat(`${path}.stopped`)) ? +rc : null;  // null: stopped
+				res.cwd = trim_read(`${path}.cwd`);
+				res.truncated = size >= SHELL_MAX_OUTPUT;
+				for (let ext in [ 'out', 'pid', 'rc', 'cwd', 'done', 'stopped' ])
+					unlink(`${path}.${ext}`);
+			}
+			return res;
+		}
+	},
+
+	shell_stop: {
+		args: { id: '' },
+		call: function(req) {
+			let path = shell_job_path(req.args.id);
+			let pid = path ? trim_read(`${path}.pid`) : null;
+			if (!pid || !match(pid, /^[0-9]+$/))
+				return { error: 'No such command' };
+			if (!stat(`${path}.done`)) {
+				writefile(`${path}.stopped`, '');
+				shell_kill_tree(pid);
+			}
+			return { ok: true };
+		}
+	},
+
 	update_check: {
 		call: function() {
 			if (!access('/usr/bin/yun-update', 'x'))
@@ -480,8 +613,26 @@ const methods = {
 		call: function() {
 			if (!access('/usr/bin/yun-update', 'x'))
 				return { error: 'yun-update is not installed' };
+			mkdir('/tmp/yun-update');
+			writefile('/tmp/yun-update/stage', 'starting\n');
 			spawn_later(1, 'exec yun-update apply');
 			return { ok: true };
+		}
+	},
+
+	// What "yun-update apply" is doing, for the panel to show. It answers
+	// until sysupgrade stops the web server to write the flash.
+	update_progress: {
+		call: function() {
+			let log = trim(readfile('/tmp/yun-update.log') ?? '');
+			let lines = log != '' ? split(log, '\n') : [];
+			let total = trim_read('/tmp/yun-update/total');
+			return {
+				stage: trim_read('/tmp/yun-update/stage') ?? 'idle',
+				downloaded: stat('/tmp/yun-update/sysupgrade.bin')?.size ?? 0,
+				total: total != null ? +total : null,
+				message: length(lines) ? replace(lines[-1], /^yun-update: /, '') : null
+			};
 		}
 	},
 };

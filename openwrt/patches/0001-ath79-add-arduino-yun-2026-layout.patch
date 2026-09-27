@@ -12,10 +12,10 @@ index 95373e5..e14b911 100644
  asus,zenwifi-cd6n|\
 diff --git a/target/linux/ath79/dts/ar9331_arduino_yun-2026.dts b/target/linux/ath79/dts/ar9331_arduino_yun-2026.dts
 new file mode 100644
-index 0000000..42f2b04
+index 0000000..bbc6de4
 --- /dev/null
 +++ b/target/linux/ath79/dts/ar9331_arduino_yun-2026.dts
-@@ -0,0 +1,226 @@
+@@ -0,0 +1,240 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
 +
 +#include "ar9331.dtsi"
@@ -220,6 +220,12 @@ index 0000000..42f2b04
 +					cal_art_1000: calibration@1000 {
 +						reg = <0x1000 0x440>;
 +					};
++
++					macaddr_art_1002: macaddr@1002 {
++						compatible = "mac-base";
++						reg = <0x1002 0x6>;
++						#nvmem-cell-cells = <1>;
++					};
 +				};
 +			};
 +		};
@@ -228,6 +234,14 @@ index 0000000..42f2b04
 +
 +&eth0 {
 +	status = "okay";
++
++	/*
++	 * The Ethernet MAC is the Wi-Fi MAC from art with bit 29 set, as on the
++	 * stock firmware (0x80000 higher when that bit is clear, which is what
++	 * boards have). board.d sets the exact value in /etc/config/network too.
++	 */
++	nvmem-cells = <&macaddr_art_1002 0x80000>;
++	nvmem-cell-names = "mac-address";
 +};
 +
 +&eth1 {

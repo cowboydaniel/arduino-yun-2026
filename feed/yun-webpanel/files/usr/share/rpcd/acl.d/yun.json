@@ -3,14 +3,15 @@
 		"description": "Yun Panel",
 		"read": {
 			"ubus": {
-				"yun": [ "status", "wifi_scan", "bridge_data", "update_check" ]
+				"yun": [ "status", "wifi_scan", "bridge_data", "update_check", "update_progress" ]
 			}
 		},
 		"write": {
 			"ubus": {
 				"yun": [ "wifi_client", "wifi_setup_ap", "sketch_flash", "mcu_reset",
 				         "bridge_put", "bridge_delete", "mailbox_send", "settings_set",
-				         "password_set", "update_apply" ],
+				         "password_set", "update_apply",
+				         "shell_start", "shell_poll", "shell_stop" ],
 				"system": [ "reboot" ]
 			},
 			"cgi-io": [ "upload" ],

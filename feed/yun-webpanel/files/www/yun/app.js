@@ -152,6 +152,7 @@
       dataTimer = setInterval(refreshData, 2000);
     }
     if (name === 'network' && !$('#scan-list').children.length) scan();
+    if (name === 'terminal') $('#term-input').focus({ preventScroll: true });
   }
 
   function renderStatus(s) {
@@ -294,6 +295,7 @@
   }
 
   async function poll() {
+    if (updating) return;
     try {
       pollSentAt = Date.now();
       renderStatus(await api.call('yun', 'status'));
@@ -449,6 +451,194 @@
     }
   }
 
+  // --- Terminal ------------------------------------------------------------
+  //
+  // Each command runs on the board as a background job (yun.shell_start);
+  // its output is fetched in pieces (yun.shell_poll) as base64, since it can
+  // be any bytes, and decoded here as one UTF-8 stream.
+
+  const QUICK_COMMANDS = [
+    'free', 'df -h', 'uptime', 'ip -br addr', 'iwinfo', 'logread | tail -n 40',
+    'dmesg | tail -n 30', 'top -bn1 | head -n 20', 'ps w',
+  ];
+  const TERM_KEEP = 200000;   // characters of output kept on screen
+
+  const term = {
+    cwd: sessionStorage.getItem('yun-cwd') || '/root',
+    history: [],
+    pos: 0,          // position in history while pressing ↑/↓
+    draft: '',
+    job: null,       // { id, offset, decoder, pending }
+  };
+
+  function termAppend(text, cls) {
+    if (!text) return;
+    const out = $('#term-out');
+    const atBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 40;
+    if (cls) out.append(el('span', { class: cls }, text));
+    else if (out.lastChild?.nodeType === Node.TEXT_NODE) out.lastChild.appendData(text);
+    else out.append(document.createTextNode(text));
+    // Drop the oldest output once there's a lot of it.
+    let excess = out.textContent.length - TERM_KEEP;
+    while (excess > 0 && out.firstChild) {
+      const first = out.firstChild, len = first.textContent.length;
+      if (first.nodeType === Node.TEXT_NODE && len > excess) { first.deleteData(0, excess); break; }
+      first.remove();
+      excess -= len;
+    }
+    if (atBottom) out.scrollTop = out.scrollHeight;
+  }
+
+  // Colours and cursor movement from programs that think they're on a
+  // terminal; carriage returns from progress bars.
+  function termClean(text) {
+    return text
+      .replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, '')
+      .replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, '')
+      .replace(/\x1b[@-_]/g, '')
+      .replace(/\r+\n/g, '\n')
+      .replace(/[^\n]*\r/g, '');
+  }
+
+  function base64Bytes(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
+  function termSetCwd(cwd) {
+    if (!cwd) return;
+    term.cwd = cwd;
+    $('#term-cwd').textContent = cwd;
+    sessionStorage.setItem('yun-cwd', cwd);
+  }
+
+  function termBusy(busy) {
+    $('#term-stop').hidden = !busy;
+    $('#term-run').disabled = busy;
+  }
+
+  function termSaveHistory() {
+    try { localStorage.setItem('yun-term-history', JSON.stringify(term.history.slice(-100))); } catch (e) { /* not kept */ }
+  }
+
+  async function termRun(command) {
+    command = command.trim();
+    if (!command || term.job) return;
+    if (term.history[term.history.length - 1] !== command) {
+      term.history.push(command);
+      termSaveHistory();
+    }
+    term.pos = term.history.length;
+    term.draft = '';
+    termAppend(`${term.cwd} # ${command}\n`, 'term-cmd');
+    if (command === 'clear') {
+      $('#term-out').replaceChildren();
+      return;
+    }
+    termBusy(true);
+    try {
+      const { id } = await api.call('yun', 'shell_start', { command, cwd: term.cwd });
+      term.job = { id, offset: 0, decoder: new TextDecoder(), pending: '' };
+      termPoll();
+    } catch (err) {
+      if (err.code === 'auth') return signedOut();
+      termAppend(`${err.message}\n`, 'term-err');
+      termBusy(false);
+    }
+  }
+
+  async function termPoll() {
+    const job = term.job;
+    if (!job) return;
+    let r;
+    try {
+      r = await api.call('yun', 'shell_poll', { id: job.id, offset: job.offset });
+    } catch (err) {
+      if (err.code === 'auth') { term.job = null; termBusy(false); return signedOut(); }
+      if (err.message === 'No such command') {
+        term.job = null;
+        termBusy(false);
+        return termAppend('(lost track of this command)\n', 'term-err');
+      }
+      // The board didn't answer: try again shortly.
+      return setTimeout(termPoll, 2000);
+    }
+    const bytes = base64Bytes(r.output || '');
+    job.offset = r.offset;
+    // Show whole lines, so a \r\n or an escape sequence split between two
+    // pieces is cleaned up properly; a long line without an end goes anyway.
+    let text = job.pending + job.decoder.decode(bytes, { stream: !r.done });
+    job.pending = '';
+    if (!r.done) {
+      const cut = text.lastIndexOf('\n') + 1;
+      if (text.length - cut < 4096) { job.pending = text.slice(cut); text = text.slice(0, cut); }
+    }
+    termAppend(termClean(text));
+    if (!r.done) return setTimeout(termPoll, bytes.length ? 250 : 600);
+
+    term.job = null;
+    termBusy(false);
+    const out = $('#term-out');
+    if (out.textContent && !out.textContent.endsWith('\n')) termAppend('\n');
+    if (r.truncated) termAppend('(output stopped at 1 MB)\n', 'term-err');
+    if (r.rc == null) termAppend('(stopped)\n', 'term-err');
+    else if (r.rc !== 0) termAppend(`(exit code ${r.rc})\n`, 'term-err');
+    termSetCwd(r.cwd);
+    if (!$('.view[data-view="terminal"]').hidden) $('#term-input').focus({ preventScroll: true });
+  }
+
+  function setupTerminal() {
+    try { term.history = JSON.parse(localStorage.getItem('yun-term-history')) || []; } catch (e) { term.history = []; }
+    term.pos = term.history.length;
+    termSetCwd(term.cwd);
+    const input = $('#term-input');
+
+    $('#term-form').addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const command = input.value;
+      if (term.job) return;
+      input.value = '';
+      termRun(command);
+    });
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'ArrowUp' && term.pos > 0) {
+        if (term.pos === term.history.length) term.draft = input.value;
+        input.value = term.history[--term.pos];
+      } else if (ev.key === 'ArrowDown' && term.pos < term.history.length) {
+        term.pos++;
+        input.value = term.pos === term.history.length ? term.draft : term.history[term.pos];
+      } else if (ev.key === 'c' && ev.ctrlKey && term.job && !input.selectionEnd) {
+        $('#term-stop').click();
+      } else if (ev.key === 'l' && ev.ctrlKey) {
+        $('#term-out').replaceChildren();
+      } else {
+        return;
+      }
+      ev.preventDefault();
+      requestAnimationFrame(() => input.setSelectionRange(input.value.length, input.value.length));
+    });
+    $('#term-stop').addEventListener('click', async () => {
+      if (!term.job) return;
+      await api.call('yun', 'shell_stop', { id: term.job.id }).catch((e) => toast(e.message, true));
+    });
+    $('#term-clear').addEventListener('click', () => $('#term-out').replaceChildren());
+    const wrap = $('#term-wrap');
+    const setWrap = (on) => {
+      wrap.setAttribute('aria-pressed', String(on));
+      $('#term-out').classList.toggle('wrap', on);
+    };
+    try { setWrap(localStorage.getItem('yun-term-wrap') === '1'); } catch (e) { /* default: don't wrap */ }
+    wrap.addEventListener('click', () => {
+      const on = wrap.getAttribute('aria-pressed') !== 'true';
+      setWrap(on);
+      try { localStorage.setItem('yun-term-wrap', on ? '1' : '0'); } catch (e) { /* not kept */ }
+    });
+    $('#term-chips').replaceChildren(...QUICK_COMMANDS.map((c) =>
+      el('button', { type: 'button', class: 'chip', onclick: () => termRun(c) }, el('code', {}, c))));
+  }
+
   // --- Settings ------------------------------------------------------------
 
   const ZONES = [
@@ -531,7 +721,7 @@
       if (!confirm('Download and install the update? The Yún restarts when it is done, and keeps its settings.')) return;
       try {
         await api.call('yun', 'update_apply');
-        toast('Installing the update. The Yún will restart in a few minutes.');
+        watchUpdate();
       } catch (err) {
         toast(`Update failed: ${err.message}`, true);
       }
@@ -542,6 +732,104 @@
       await api.call('system', 'reboot').catch(() => {});
       toast('Restarting…');
     });
+  }
+
+  // --- Firmware update ---------------------------------------------------
+  //
+  // yun-update keeps the web panel running while it downloads, so this can
+  // show how far it has got. When sysupgrade takes over it stops the web
+  // server; from then on, wait for the board to answer again.
+
+  let updating = false;
+
+  async function watchUpdate() {
+    updating = true;
+    const from = status?.firmware?.version;
+    const box = $('#fw-progress'), step = $('#fw-step'), pct = $('#fw-pct'), bar = $('#fw-bar'), note = $('#fw-note');
+    $('#fw-apply').hidden = true;
+    $('#fw-check').disabled = true;
+    box.hidden = false;
+    bar.parentElement.className = 'meter';
+    const set = (label, p, text = '') => {
+      step.textContent = label;
+      pct.textContent = p == null ? '' : `${Math.round(p * 100)}%`;
+      bar.style.width = `${Math.round((p ?? 0) * 100)}%`;
+      note.textContent = text;
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    set('Starting…', 0.02, "Keep this page open. Don't unplug the Yún.");
+
+    // 1. Follow yun-update while the board answers.
+    let last = null, misses = 0;
+    for (;;) {
+      await sleep(1000);
+      let p;
+      try {
+        p = await api.call('yun', 'update_progress');
+        misses = 0;
+      } catch (err) {
+        if (++misses < 3) continue;
+        break;                  // the web server has stopped
+      }
+      last = p.stage;
+      if (p.stage === 'failed') {
+        bar.parentElement.className = 'meter bad';
+        set('The update failed', 1, `${p.message || ''} Nothing was installed; the Yún carries on as before.`);
+        $('#fw-check').disabled = false;
+        updating = false;
+        return;
+      }
+      if (p.stage === 'downloading' && p.total) {
+        const f = Math.min(1, p.downloaded / p.total);
+        set(`Downloading… ${bytes(p.downloaded)} of ${bytes(p.total)}`, 0.05 + f * 0.6, p.message || '');
+      } else if (p.stage === 'verifying') {
+        set('Checking the download…', 0.67);
+      } else if (p.stage === 'installing') {
+        set('Installing…', 0.7, 'The web panel stops now while the flash is written.');
+      } else {
+        set('Getting ready…', 0.04, p.message || '');
+      }
+    }
+
+    // 2. Writing the flash and restarting.
+    set('Writing the new firmware and restarting…', 0.75,
+      (last === 'installing' ? '' : 'The web panel stopped to free memory for the update. ') +
+      "This takes about 3 minutes. Don't unplug the Yún; this page reconnects by itself.");
+    const began = Date.now();
+    let wentAway = false, back = false;
+    while (Date.now() - began < 12 * 60000) {
+      await sleep(4000);
+      const f = Math.min(0.97, 0.75 + (Date.now() - began) / (4 * 60000) * 0.22);
+      bar.style.width = `${Math.round(f * 100)}%`;
+      pct.textContent = `${Math.round(f * 100)}%`;
+      try {
+        const res = await fetch(`/yun/icon.svg?${Date.now()}`, { cache: 'no-store' });
+        if (!res.ok) throw new Error();
+        if (wentAway || Date.now() - began > 60000) { back = true; break; }
+      } catch (e) {
+        wentAway = true;
+      }
+    }
+    updating = false;
+    if (!back) {
+      bar.parentElement.className = 'meter warn';
+      set('The Yún hasn’t come back yet', 1,
+        'If it still isn’t reachable in a few minutes, unplug it and plug it in again. The serial console shows how far it got.');
+      return;
+    }
+    set('Done', 1);
+    // The restart ended this session: sign in again to see the new version.
+    try {
+      const s = await api.call('yun', 'status');
+      renderStatus(s);
+      set(`Updated to ${s.firmware?.version || 'the new version'}`, 1, from ? `Was ${from}.` : '');
+      toast(`Updated to ${s.firmware?.version}`);
+    } catch (err) {
+      signedOut();
+      $('#login-error').textContent = 'The update is installed and the Yún has restarted. Sign in again.';
+      $('#login-error').hidden = false;
+    }
+    $('#fw-check').disabled = false;
   }
 
   // --- Login ---------------------------------------------------------------
@@ -607,6 +895,7 @@
     });
     setupDropzones();
     setupSettings();
+    setupTerminal();
     setupTheme();
 
     $('#app').classList.remove('booting');
