@@ -227,5 +227,59 @@ class NetworkSetupTest(unittest.TestCase):
         self.assertEqual(self.uci('arduino.@arduino[0].wifi_state'), 'client')
 
 
+    def test_sync_puts_the_role_back(self):
+        # What the 2026.2 update did to a client: sections rewritten to
+        # setup mode while the saved role still says client.
+        self.first_boot()
+        yun_wifi = os.path.join(BASE, 'usr', 'bin', 'yun-wifi')
+        self.run_script(yun_wifi, 'client', 'Home', 'psk2', 'secret pass')
+        subprocess.run([UCI, '-c', self.conf, 'batch'], input=(
+            "set wireless.yun_sta.disabled='1'\nset wireless.yun_ap.disabled='0'\ncommit\n"),
+            text=True, check=True)
+        open(self.calls, 'w').close()
+        self.run_script(yun_wifi, 'sync')
+        self.assertEqual(self.uci('wireless.yun_sta.disabled'), '0')
+        self.assertEqual(self.uci('wireless.yun_ap.disabled'), '1')
+        with open(self.calls) as f:
+            self.assertIn('wifi reload', f.read())
+
+    def test_sync_leaves_a_matching_setup_alone(self):
+        self.first_boot()
+        open(self.calls, 'w').close()
+        self.run_script(os.path.join(BASE, 'usr', 'bin', 'yun-wifi'), 'sync')
+        self.assertEqual(self.uci('wireless.yun_ap.disabled'), '0')
+        with open(self.calls) as f:
+            self.assertNotIn('wifi reload', f.read())
+
+    def test_late_radio_finishes_the_wifi_setup(self):
+        # First boot without the radio: the Wi-Fi part is left for later.
+        with open(os.path.join(self.conf, 'wireless'), 'w') as f:
+            f.write('')
+        for name in ('wifi', 'lock'):
+            with open(os.path.join(self.bin, name), 'w') as f:
+                f.write(f'#!/bin/sh\necho "{name} $*" >> "{self.calls}"\n')
+        defaults = os.path.join(self.tmp.name, 'uci-defaults')
+        os.makedirs(defaults)
+        script = os.path.join(defaults, '90-yun-network')
+        shutil.copy(os.path.join(BASE, 'etc', 'uci-defaults', '90-yun-network'), script)
+        p = subprocess.run(['sh', script], capture_output=True, text=True, env=self.env)
+        self.assertEqual(p.returncode, 1)          # waits for the radio
+        self.assertIsNone(self.uci('wireless.yun_ap'))
+
+        # The radio appears: 10-wifi-detect writes radio0, then our hook.
+        with open(os.path.join(self.conf, 'wireless'), 'w') as f:
+            f.write(WIRELESS)
+        open(self.calls, 'w').close()
+        p = subprocess.run(['sh', os.path.join(BASE, 'etc', 'hotplug.d', 'ieee80211', '20-yun-wifi')],
+                           capture_output=True, text=True,
+                           env=dict(self.env, ACTION='add', YUN_UCI_DEFAULTS=defaults))
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(self.uci('wireless.yun_ap.disabled'), '0')
+        self.assertEqual(self.uci('wireless.yun_sta.disabled'), '1')
+        self.assertFalse(os.path.exists(script))   # done, not run again at the next boot
+        with open(self.calls) as f:
+            self.assertIn('wifi reload', f.read())
+
+
 if __name__ == '__main__':
     unittest.main()

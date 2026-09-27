@@ -33,6 +33,8 @@ define Package/yun-webpanel/install
 	$(INSTALL_DIR) $(1)/www/yun $(1)/usr/share/rpcd/ucode $(1)/usr/share/rpcd/acl.d \
 		$(1)/usr/share/ucode/yun $(1)/usr/share/yun $(1)/etc/uci-defaults
 	$(INSTALL_DATA) ./files/www/index.html $(1)/www/
+	$(INSTALL_DIR) $(1)/www/cgi-bin
+	$(INSTALL_BIN) ./files/www/cgi-bin/luci $(1)/www/cgi-bin/
 	$(INSTALL_DATA) ./files/www/yun/* $(1)/www/yun/
 	$(INSTALL_DATA) ./files/usr/share/rpcd/ucode/yun.uc $(1)/usr/share/rpcd/ucode/
 	$(INSTALL_DATA) ./files/usr/share/rpcd/acl.d/yun.json $(1)/usr/share/rpcd/acl.d/

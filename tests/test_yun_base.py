@@ -167,6 +167,94 @@ class RunAvrdudeTest(unittest.TestCase):
         self.assertEqual(calls, [])
 
 
+
+HOOK_HARNESS = r"""#!/bin/sh
+# Stands in for /sbin/sysupgrade: sets what it has parsed by the time it
+# sources /lib/upgrade, then sources the hook.
+TEST=${TEST:-0} HELP=0 CONF_BACKUP_LIST=0 CONF_BACKUP=${CONF_BACKUP:-} CONF_RESTORE=
+IMAGE=$1
+v() { echo "$*"; }
+. "$HOOK"
+echo "stage1 done"
+exit ${STAGE1_EXIT:-0}
+"""
+
+
+class FreeRamHookTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        t = self.tmp.name
+        self.calls = os.path.join(t, 'calls')
+        self.initd = os.path.join(t, 'init.d')
+        os.makedirs(self.initd)
+        for s in ('uhttpd', 'rpcd', 'umdns', 'cron', 'odhcpd', 'dnsmasq', 'network'):
+            path = os.path.join(self.initd, s)
+            with open(path, 'w') as f:
+                f.write(f'#!/bin/sh\necho "{s} $1" >> "{self.calls}"\n')
+            os.chmod(path, 0o755)
+        self.proc = os.path.join(t, 'proc')
+        os.makedirs(os.path.join(self.proc, 'sys', 'vm'))
+        os.makedirs(os.path.join(self.proc, '1'))
+        with open(os.path.join(self.proc, 'meminfo'), 'w') as f:
+            f.write('MemAvailable:      19636 kB\n')
+        self.harness = os.path.join(t, 'sysupgrade')      # $0 must be sysupgrade
+        with open(self.harness, 'w') as f:
+            f.write(HOOK_HARNESS)
+        os.chmod(self.harness, 0o755)
+
+    def run_sysupgrade(self, *args, pid1='/sbin/procd', **env):
+        exe = os.path.join(self.proc, '1', 'exe')
+        if os.path.lexists(exe):
+            os.remove(exe)
+        os.symlink(pid1, exe)
+        return subprocess.run([self.harness, *args], capture_output=True, text=True, env=dict(
+            os.environ, HOOK=os.path.join(FILES, 'lib', 'upgrade', 'yun-free-ram.sh'),
+            YUN_INITD=self.initd, YUN_PROC=self.proc, **env))
+
+    def recorded(self):
+        try:
+            with open(self.calls) as f:
+                return f.read().splitlines()
+        except FileNotFoundError:
+            return []
+
+    def test_upgrade_frees_memory_and_leaves_it_to_stage2(self):
+        p = self.run_sysupgrade('/tmp/sysupgrade.bin', pid1='/tmp/root/sbin/upgraded')
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn('19636 KB available', p.stdout)
+        self.assertEqual(self.recorded(), ['uhttpd stop', 'rpcd stop', 'umdns stop', 'cron stop',
+                                           'odhcpd stop', 'dnsmasq stop'])   # nothing restarted
+        with open(os.path.join(self.proc, 'sys', 'vm', 'drop_caches')) as f:
+            self.assertEqual(f.read().strip(), '3')
+
+    def test_failed_upgrade_restarts_services(self):
+        p = self.run_sysupgrade('/tmp/sysupgrade.bin', STAGE1_EXIT='1')
+        self.assertEqual(p.returncode, 1)
+        self.assertEqual(self.recorded()[6:], ['uhttpd start', 'rpcd start', 'umdns start', 'cron start',
+                                               'odhcpd start', 'dnsmasq start'])
+
+    def test_url_keeps_dns_for_the_download(self):
+        self.run_sysupgrade('https://example.com/sysupgrade.bin', pid1='/tmp/root/sbin/upgraded')
+        self.assertNotIn('dnsmasq stop', self.recorded())
+
+    def test_checks_and_backups_leave_services_alone(self):
+        self.run_sysupgrade('/tmp/sysupgrade.bin', TEST='1')
+        self.run_sysupgrade('', CONF_BACKUP='/tmp/backup.tgz')
+        self.run_sysupgrade('')
+        self.assertEqual(self.recorded(), [])
+        self.assertNotIn('network stop', self.recorded())
+
+
+class LuciRedirectTest(unittest.TestCase):
+    def test_old_panel_url_goes_to_the_new_one(self):
+        cgi = os.path.join(HERE, '..', 'feed', 'yun-webpanel', 'files', 'www', 'cgi-bin', 'luci')
+        out = subprocess.run([cgi], capture_output=True).stdout
+        head = out.split(b'\r\n\r\n')[0].split(b'\r\n')
+        self.assertEqual(head[0], b'Status: 302 Found')
+        self.assertIn(b'Location: /?yun', head)
+
+
 if __name__ == '__main__':
     unittest.main()
 

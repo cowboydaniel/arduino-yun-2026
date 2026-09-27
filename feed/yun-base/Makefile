@@ -43,6 +43,9 @@ define Package/yun-base/install
 	$(INSTALL_BIN) ./files/etc/rc.button/BTN_0 $(1)/etc/rc.button/
 	$(INSTALL_BIN) ./files/etc/uci-defaults/* $(1)/etc/uci-defaults/
 	$(INSTALL_DATA) ./files/etc/umdns/arduino.json $(1)/etc/umdns/
+	$(INSTALL_DIR) $(1)/etc/hotplug.d/ieee80211 $(1)/lib/upgrade
+	$(INSTALL_BIN) ./files/etc/hotplug.d/ieee80211/20-yun-wifi $(1)/etc/hotplug.d/ieee80211/
+	$(INSTALL_DATA) ./files/lib/upgrade/yun-free-ram.sh $(1)/lib/upgrade/
 	echo "VERSION='$(PKG_VERSION)'" > $(1)/etc/yun_release
 endef
 
