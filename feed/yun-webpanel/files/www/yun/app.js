@@ -134,6 +134,9 @@
   let status = null;
   const memHistory = [];
   let pollTimer = null;
+  let clockTimer = null;
+  let clockOffset = null;   // board time minus this computer's time, in ms
+  let pollSentAt = 0;       // when the last status request was sent
   let dataTimer = null;
   let lastData = {};
 
@@ -156,7 +159,7 @@
     const host = s.hostname || 'Arduino';
     document.title = `${host} · Yún Panel`;
     $('#board-name').textContent = host;
-    $('#board-sub').textContent = [s.model, s.time && new Date(s.time * 1000).toLocaleString()].filter(Boolean).join(' · ');
+    syncClock(s.time, pollSentAt);
 
     const pill = $('#conn-pill');
     pill.className = 'pill is-ok';
@@ -240,6 +243,35 @@
     ]);
   }
 
+  // The header clock. Status arrives every 3 s with the board's time in whole
+  // seconds, so one reading only pins the board's clock to within a second.
+  // Each reading taken when the reply arrives is a lower bound on the offset
+  // (the board's clock can only have moved on since), and one taken when the
+  // request was sent, plus a second, is an upper bound. Keep the highest lower
+  // bound, and start again only if a reading falls outside those bounds (the
+  // board's clock was changed). Then tick on the board's second boundaries.
+  function syncClock(time, sentAt) {
+    if (!time) { clockOffset = null; return; }
+    const lower = time * 1000 - Date.now();
+    const upper = time * 1000 + 1000 - sentAt;
+    if (clockOffset == null || clockOffset > upper || clockOffset < lower - 2000) clockOffset = lower;
+    else clockOffset = Math.max(clockOffset, lower);
+    tickClock();
+  }
+
+  function renderClock() {
+    const time = clockOffset == null ? null : new Date(Date.now() + clockOffset).toLocaleString();
+    $('#board-sub').textContent = [status?.model, time].filter(Boolean).join(' · ');
+  }
+
+  function tickClock() {
+    clearTimeout(clockTimer);
+    renderClock();
+    if (clockOffset == null) return;
+    const ms = (Date.now() + clockOffset) % 1000;
+    clockTimer = setTimeout(tickClock, 1000 - ms + 15);
+  }
+
   function drawSpark(canvas, values) {
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth, h = canvas.clientHeight;
@@ -263,6 +295,7 @@
 
   async function poll() {
     try {
+      pollSentAt = Date.now();
       renderStatus(await api.call('yun', 'status'));
     } catch (err) {
       if (err.code === 'auth') return signedOut();
@@ -426,6 +459,26 @@
     'Europe/Rome', 'Pacific/Auckland',
   ];
 
+  // --- Appearance ----------------------------------------------------------
+
+  function setupTheme() {
+    let saved = 'auto';
+    try { saved = localStorage.getItem('yun-theme') || 'auto'; } catch (e) { /* no storage */ }
+    const pick = $(`#theme-seg input[value="${saved}"]`) || $('#theme-seg input[value="auto"]');
+    pick.checked = true;
+    $('#theme-seg').addEventListener('change', (ev) => {
+      const theme = ev.target.value;
+      if (theme === 'auto') delete document.documentElement.dataset.theme;
+      else document.documentElement.dataset.theme = theme;
+      try {
+        if (theme === 'auto') localStorage.removeItem('yun-theme');
+        else localStorage.setItem('yun-theme', theme);
+      } catch (e) { /* not saved, but still applied until the page reloads */ }
+      // The memory graph reads the accent colour when it draws.
+      drawSpark($('#mem-spark'), memHistory);
+    });
+  }
+
   function setupSettings() {
     $('#set-zone').replaceChildren(...ZONES.map((z) => el('option', { value: z }, z.replace(/_/g, ' '))));
 
@@ -495,6 +548,7 @@
 
   function signedOut() {
     clearInterval(pollTimer);
+    clearTimeout(clockTimer);
     clearInterval(dataTimer);
     api.logout();
     $('#shell').hidden = true;
@@ -553,6 +607,7 @@
     });
     setupDropzones();
     setupSettings();
+    setupTheme();
 
     $('#app').classList.remove('booting');
     // Reuse a session from this tab if it's still valid.

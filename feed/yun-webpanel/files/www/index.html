@@ -7,6 +7,13 @@
 <title>Yún Panel</title>
 <link rel="icon" href="yun/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="yun/style.css">
+<script>
+  // Apply the saved Light/Dark choice before the page draws (see Settings).
+  try {
+    const t = localStorage.getItem('yun-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+  } catch (e) { /* no storage: follow the device */ }
+</script>
 </head>
 <body>
 <div id="app" class="booting">
@@ -265,6 +272,15 @@
             <div class="card-actions">
               <button class="btn" id="fw-check">Check for updates</button>
               <button class="btn btn-primary" id="fw-apply" hidden>Install update</button>
+            </div>
+          </article>
+          <article class="card">
+            <header class="card-head"><h2>Appearance</h2></header>
+            <p class="muted">Auto follows this device's light or dark setting. The choice is saved in this browser.</p>
+            <div class="seg" role="radiogroup" aria-label="Theme" id="theme-seg">
+              <label><input type="radio" name="theme" value="auto"><span>Auto</span></label>
+              <label><input type="radio" name="theme" value="light"><span>Light</span></label>
+              <label><input type="radio" name="theme" value="dark"><span>Dark</span></label>
             </div>
           </article>
           <article class="card">

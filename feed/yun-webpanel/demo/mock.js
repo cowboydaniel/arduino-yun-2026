@@ -17,7 +17,7 @@
     wifi.rx_bytes += Math.round(Math.random() * 4000);
     wifi.tx_bytes += Math.round(Math.random() * 900);
     return {
-      hostname: settings.hostname, model: 'Arduino Yún', time: Date.now() / 1000,
+      hostname: settings.hostname, model: 'Arduino Yún', time: Math.floor(Date.now() / 1000),
       uptime: up, load: [0.08 + Math.random() * 0.1, 0.12, 0.09],
       zonename: settings.zonename, rest_secure: settings.rest_secure,
       firmware: { version: 'Yún 2026.1', openwrt: 'OpenWrt 25.12.5', kernel: '6.12.48', description: 'Arduino Yún 2026 on OpenWrt 25.12.5' },

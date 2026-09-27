@@ -23,8 +23,10 @@
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+/* Dark colours: from the device's setting (Auto), or chosen in Settings,
+   which sets data-theme on <html>. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0e1719;
     --surface: #152224;
     --surface-2: #1b2b2e;
@@ -44,6 +46,29 @@
     --shadow: 0 1px 2px rgba(0, 0, 0, .3);
   }
 }
+
+:root[data-theme="dark"] {
+  --bg: #0e1719;
+  --surface: #152224;
+  --surface-2: #1b2b2e;
+  --border: #26393c;
+  --text: #e3eef0;
+  --muted: #93a8ac;
+  --accent: #2bb3b9;
+  --accent-strong: #52c7cc;
+  --accent-soft: #143a3d;
+  --on-accent: #06282a;
+  --ok: #4cc47f;
+  --ok-soft: #173a26;
+  --warn: #e0a14a;
+  --warn-soft: #3b2d17;
+  --bad: #ef6f62;
+  --bad-soft: #43201c;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3);
+}
+
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; }
@@ -190,6 +215,14 @@ input:focus, select:focus, .btn:focus-visible, .dropzone:focus-within { outline:
 .switch:checked { background: var(--accent); }
 .switch:checked::after { transform: translateX(18px); }
 .error { color: var(--bad); font-size: .9rem; }
+
+/* Segmented control (Appearance) */
+.seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; }
+.seg label { position: relative; }
+.seg input { position: absolute; inset: 0; opacity: 0; margin: 0; padding: 0; cursor: pointer; }
+.seg span { display: block; padding: .35rem .9rem; border-radius: 7px; font-size: .88rem; font-weight: 600; color: var(--muted); }
+.seg input:checked + span { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.seg input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* Dropzone */
 .dropzone {
