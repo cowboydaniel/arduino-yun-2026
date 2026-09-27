@@ -42,6 +42,8 @@ jobs:
         run: |
           mkdir -p out
           cp "$RUNNER_TEMP"/yun-build/openwrt/bin/targets/ath79/generic/*arduino_yun-2026* out/
+          # Users run this on the stock firmware to install linino-upgrade.bin.
+          cp tools/yun-migrate out/
           cd out && sha256sum * > SHA256SUMS && cat SHA256SUMS
           # The stock firmware's busybox has md5sum but no sha256sum.
           md5sum *.bin > MD5SUMS && cat MD5SUMS

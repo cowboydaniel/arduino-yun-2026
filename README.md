@@ -1,6 +1,6 @@
 Modern OpenWrt for the Arduino Yún, with updates and all the old Arduino stuff.
 
-**Status:** a first image builds and passes every offline check, and the software is tested off the board, but nothing has run on a Yún yet. There's nothing to download. See [TODO.md](TODO.md).
+**Status:** working. It has been installed in place on an Arduino Yún Rev1 running the stock firmware (OpenWrtYun 1.6.2): the board came up on OpenWrt 25.12.5 with its Wi-Fi, hostname, time zone, root password and SSH keys carried over. Download it from [Releases](https://github.com/cowboydaniel/arduino-yun-2026/releases).
 
 ## What's in it
 
@@ -9,6 +9,36 @@ Modern OpenWrt for the Arduino Yún, with updates and all the old Arduino stuff.
 - Uploading sketches over Wi-Fi from the Arduino IDE, or from the web panel.
 - A new web panel: status, Wi-Fi setup, drag and drop sketch upload, the live datastore, settings and firmware updates.
 - The stock REST API (`/arduino`, `/data`, `/mailbox`), the WLAN RST button, the setup access point, and keeping your settings when moving from stock.
+
+## Installing from the stock firmware
+
+You need the Yún on your network running its stock firmware, and a PC that can reach it over SSH. Only the Yún Rev1 is supported.
+
+1. **Back up first.** Follow steps 1 and 2 of [backup and recovery](docs/recovery.md). It takes a few minutes, and it means you can always go back.
+2. **Download** `openwrt-ath79-generic-arduino_yun-2026-squashfs-linino-upgrade.bin`, `yun-migrate` and `MD5SUMS` from the [latest release](https://github.com/cowboydaniel/arduino-yun-2026/releases/latest).
+3. **Copy them to the Yún:**
+
+   ```sh
+   scp openwrt-ath79-generic-arduino_yun-2026-squashfs-linino-upgrade.bin yun-migrate root@arduino.local:/tmp/
+   ```
+
+4. **Check and install.** Use the image's MD5 from `MD5SUMS`. The stock firmware can't check a SHA-256.
+
+   ```sh
+   ssh root@arduino.local
+   sh /tmp/yun-migrate -t /tmp/openwrt-ath79-generic-arduino_yun-2026-squashfs-linino-upgrade.bin <md5>   # dry run: checks only
+   sh /tmp/yun-migrate /tmp/openwrt-ath79-generic-arduino_yun-2026-squashfs-linino-upgrade.bin <md5>
+   ```
+
+   It asks before flashing. The Yún then writes the new firmware and restarts. Don't unplug it: after about three minutes it's back on its old address, with its settings. Log in with the same password or SSH key as before.
+
+`yun-migrate` keeps your Wi-Fi network and password, country, hostname, time zone, root password, SSH host key and authorized keys, and Ethernet and Wi-Fi address settings. Nothing else is copied over. If you used an SD card as extra storage (extroot), its files stay on the card, and the new firmware uses the internal flash.
+
+The stock firmware's SSH server is old. Recent OpenSSH clients need `-o KexAlgorithms=+diffie-hellman-group14-sha1 -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa` for these commands, or the same lines in `~/.ssh/config`.
+
+## Updating
+
+On Yún 2026, `yun-update check` looks for a newer release, and `yun-update apply` downloads, verifies and installs it, keeping your settings. The web panel's **Settings → Firmware** does the same. Packages you added with `apk` aren't kept across an update.
 
 ## Layout
 

@@ -25,4 +25,4 @@ Only the original Arduino Yún (Rev1) is supported. The Yún Rev2 and Yún Mini 
 
 ## Status
 
-The software is written and tested off the board, but the firmware hasn't run on a Yún yet, and there's no firmware to download. See [TODO.md](TODO.md).
+Working: the firmware installs in place from the stock firmware, keeping its settings, and is published on the [Releases](https://github.com/cowboydaniel/arduino-yun-2026/releases) page. Some Arduino features still need testing on hardware; see [TODO.md](TODO.md).

@@ -1,6 +1,6 @@
 # Design and findings
 
-This page records what we know about the Yún, and how the in-place update is meant to work. The facts about the stock board come from probes of a real Yún (see the files linked below); the new firmware itself hasn't run on hardware yet.
+This page records what we know about the Yún, and how the in-place update is meant to work. The facts about the stock board come from probes of a real Yún (see the files linked below), and the design has been installed in place on a stock Yún Rev1 running OpenWrtYun 1.6.2.
 
 ## Requirements
 

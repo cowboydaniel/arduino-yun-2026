@@ -26,13 +26,21 @@ fi
 
 cd "$SRC"
 
-# Start from a clean tree so the patches always apply.
-git reset -q
-git checkout -q -- .
-git clean -qfd target package
+# Apply the patches to a clean tree, but only when they aren't applied
+# already: resetting and re-applying them touches the patched files, and
+# make then rebuilds everything that depends on them.
+applied=1
 for p in "$REPO_DIR"/openwrt/patches/*.patch; do
-	git apply "$p"
+	git apply --reverse --check "$p" 2>/dev/null || applied=0
 done
+if [ $applied = 0 ]; then
+	git reset -q
+	git checkout -q -- .
+	git clean -qfd target package
+	for p in "$REPO_DIR"/openwrt/patches/*.patch; do
+		git apply "$p"
+	done
+fi
 
 cp feeds.conf.default feeds.conf
 echo "src-link arduino $REPO_DIR/feed" >> feeds.conf

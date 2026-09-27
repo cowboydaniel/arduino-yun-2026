@@ -23,7 +23,8 @@ Don't flash the test Yún until its owner confirms. Follow [docs/recovery.md](do
 
 - [x] `yun-migrate -t` on stock Linino (2026-09-27). It found three bugs, now fixed: stock busybox has no `sha256sum` (use the MD5 there), the RAM check read `MemFree` not `MemAvailable`, and the settings archive was world-readable.
 - [x] `yun-migrate` for real (2026-09-27, cloud-built image, MD5 `c57f88eb...`). **The first boot hung at "Starting kernel":** the lzma-loader's `board_putc()` only knew the 16550 UART, and on the AR9331 it waited forever at its first `printf`. The loader now detects the AR9330/AR9331 and uses its own UART (`openwrt/patches`). The fixed loader was TFTP'd and booted from RAM, then written to 0x9fea0000 from U-Boot (`cmp.b` verified). The board then booted OpenWrt 25.12.5 from flash, and reboots unattended. `/etc/yun-migrate.log` shows every setting imported: hostname, time zone, Wi-Fi country, root password, SSH host key and keys. Wi-Fi rejoined as a client on the same address, and `ssh` works with the old key and host key. **Don't use images built before this fix:** they hang every Yún at first boot.
-- [ ] Rebuild and publish the image with the loader fix, and add a check for it to `tools/check-image.py` if possible.
+- [x] Rebuild and publish the image with the loader fix: release v2026.1.
+- [ ] Add a check for the loader's AR933x UART support to `tools/check-image.py`, if possible.
 - [ ] The Ethernet driver reports "invalid MAC address, using random address" at boot (there's no NVMEM cell for it in the device tree). board.d then sets the right MAC (90:a2:da:f8:54:d2 was seen), but the device tree should give it directly.
 - [ ] The USB LED is on whenever the microSD card is in: the card reader sits on the internal USB hub, and the LED uses the `usbport` trigger. Decide whether that's what we want.
 - [ ] `Bridge.begin()` starts the bridge from the serial console; the Bridge examples (Process, FileIO, HttpClient, Console, Bridge/datastore, Mailbox) work.
@@ -48,6 +49,7 @@ Don't flash the test Yún until its owner confirms. Follow [docs/recovery.md](do
 
 ## Release
 
-- [ ] First tagged release with `linino-upgrade.bin`, `sysupgrade.bin`, `SHA256SUMS` and `MD5SUMS`.
-- [ ] User docs: installing from stock, the panel, recovering.
+- [x] First tagged release (v2026.1) with `linino-upgrade.bin`, `sysupgrade.bin`, `yun-migrate`, `SHA256SUMS` and `MD5SUMS`.
+- [x] User docs: installing from stock (README) and recovering (docs/recovery.md).
+- [ ] User docs for the web panel.
 - [x] License: GPL-2.0-or-later, except the OpenWrt patches, which are GPL-2.0-only like OpenWrt (see `LICENSE`).
