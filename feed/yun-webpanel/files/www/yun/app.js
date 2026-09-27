@@ -127,6 +127,13 @@
   const ENCRYPTION = {
     none: 'Open', psk: 'WPA', psk2: 'WPA2', 'psk-mixed': 'WPA/WPA2',
     sae: 'WPA3', 'sae-mixed': 'WPA2/WPA3', owe: 'OWE',
+    wpa2: 'WPA2 Enterprise', 'wpa3-mixed': 'WPA2/WPA3 Enterprise', wpa3: 'WPA3 Enterprise',
+  };
+  const ENTERPRISE = ['wpa2', 'wpa3-mixed', 'wpa3'];
+  // Inner authentication for each EAP method (yun.uc's EAP_METHODS).
+  const PHASE2 = {
+    peap: [['MSCHAPV2', 'MSCHAPv2']],
+    ttls: [['PAP', 'PAP'], ['MSCHAPV2', 'MSCHAPv2'], ['MSCHAP', 'MSCHAP'], ['CHAP', 'CHAP'], ['EAP-MSCHAPV2', 'EAP-MSCHAPv2']],
   };
 
   // --- State ---------------------------------------------------------------
@@ -343,26 +350,51 @@
     $('#join-form').hidden = false;
     $('#join-title').textContent = `Join ${r.ssid}`;
     $('#join-ssid').value = r.ssid;
-    const enc = r.encryption === 'none' ? 'none' : (r.encryption?.startsWith('sae') ? 'sae-mixed' : 'psk2');
+    const enc = r.encryption === 'none' ? 'none'
+      : ENTERPRISE.includes(r.encryption) ? r.encryption
+        : (r.encryption?.startsWith('sae') ? 'sae-mixed' : 'psk2');
     $('#join-enc').value = enc;
     updateKeyField();
-    (enc === 'none' ? $('#join-ssid') : $('#join-key')).focus();
+    (enc === 'none' ? $('#join-ssid') : ENTERPRISE.includes(enc) ? $('#join-identity') : $('#join-key')).focus();
   }
 
   function updateKeyField() {
-    const open = $('#join-enc').value === 'none';
-    $('#join-key-field').hidden = open;
-    $('#join-key').required = !open;
+    const enc = $('#join-enc').value;
+    const open = enc === 'none', eap = ENTERPRISE.includes(enc);
+    $('#join-key-field').hidden = open || eap;
+    $('#join-key').required = !open && !eap;
+    $('#join-eap').hidden = !eap;
+    $('#join-identity').required = eap;
+    $('#join-password').required = eap;
+    updatePhase2();
+  }
+
+  function updatePhase2() {
+    const sel = $('#join-phase2'), keep = sel.value;
+    const options = PHASE2[$('#join-eap-type').value] || [];
+    sel.replaceChildren(...options.map(([v, label]) => el('option', { value: v }, label)));
+    if (options.some(([v]) => v === keep)) sel.value = keep;
+    sel.disabled = options.length < 2;
   }
 
   async function join(ev) {
     ev.preventDefault();
     const ssid = $('#join-ssid').value.trim();
     const encryption = $('#join-enc').value;
-    const key = $('#join-key').value;
+    const args = { ssid, encryption };
+    if (ENTERPRISE.includes(encryption)) {
+      Object.assign(args, {
+        eap: $('#join-eap-type').value, phase2: $('#join-phase2').value,
+        identity: $('#join-identity').value.trim(), password: $('#join-password').value,
+        anonymous_identity: $('#join-anon').value.trim(), domain: $('#join-domain').value.trim(),
+      });
+      if (!args.domain && !confirm("Join without checking the network's login server? Anyone running a fake network with this name could collect your password.")) return;
+    } else {
+      args.key = $('#join-key').value;
+    }
     if (!confirm(`Join "${ssid}"? The Yún will leave its current network. Find it again as ${status?.hostname || 'Arduino'}.local once it has joined.`)) return;
     try {
-      await api.call('yun', 'wifi_client', { ssid, encryption, key });
+      await api.call('yun', 'wifi_client', args);
       toast(`Joining ${ssid}…`);
       $('#join-form').hidden = true;
     } catch (err) {
@@ -873,6 +905,7 @@
     $('#join-form').addEventListener('submit', join);
     $('#join-cancel').addEventListener('click', () => ($('#join-form').hidden = true));
     $('#join-enc').addEventListener('change', updateKeyField);
+    $('#join-eap-type').addEventListener('change', updatePhase2);
     $('#ap-btn').addEventListener('click', async () => {
       if (!confirm('Switch to setup mode? The Yún leaves its Wi-Fi network and starts its own.')) return;
       await api.call('yun', 'wifi_setup_ap').catch((e) => toast(e.message, true));

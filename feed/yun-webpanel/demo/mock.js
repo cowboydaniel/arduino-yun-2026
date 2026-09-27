@@ -59,6 +59,7 @@
             { ssid: 'Neighbours', quality: 31, encryption: 'psk2' },
             { ssid: 'Printer-Direct', quality: 55, encryption: 'none' },
             { ssid: 'Cafe Guest', quality: 18, encryption: 'none' },
+            { ssid: 'eduroam', quality: 48, encryption: 'wpa3-mixed' },
           ] };
         case 'wifi_client': wifi = { ...wifi, ssid: params.ssid, encryption: params.encryption }; return {};
         case 'wifi_setup_ap': return {};

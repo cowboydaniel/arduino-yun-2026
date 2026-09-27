@@ -111,8 +111,8 @@ class RpcdPluginTest(unittest.TestCase):
         self.assertEqual(by['Workshop']['quality'], 70)
         self.assertEqual(by['Cafe <b>Guest</b>']['encryption'], 'none')
         self.assertEqual(by['Newer']['encryption'], 'sae-mixed')
-        self.assertNotIn('Office', by)          # 802.1X can't be joined from the panel
-        self.assertEqual(len(r), 3)             # hidden network skipped too
+        self.assertEqual(by['Office']['encryption'], 'wpa2')      # 802.1X: Enterprise
+        self.assertEqual(len(r), 4)             # hidden network skipped
 
     def test_wifi_client_validates_and_passes_args_safely(self):
         self.assertIn('error', self.call('wifi_client', {'ssid': '', 'encryption': 'psk2', 'key': 'x' * 8}))
@@ -123,6 +123,19 @@ class RpcdPluginTest(unittest.TestCase):
                          {'ok': True})
         self.assertEqual(self.calls(), [f"yun-wifi client {ssid} psk2 pa ss'word"])
         self.assertFalse(os.path.exists('/tmp/pwned'))
+
+    def test_wifi_client_enterprise(self):
+        base = {'ssid': 'eduroam', 'encryption': 'wpa3-mixed', 'eap': 'peap', 'phase2': 'MSCHAPV2',
+                'identity': 'dan@example.edu', 'password': "p@ss 'w$(id)"}
+        self.assertIn('error', self.call('wifi_client', dict(base, eap='tls')))
+        self.assertIn('error', self.call('wifi_client', dict(base, phase2='PAP')))      # not with PEAP
+        self.assertIn('error', self.call('wifi_client', dict(base, identity='')))
+        self.assertIn('error', self.call('wifi_client', dict(base, password='')))
+        self.assertIn('error', self.call('wifi_client', dict(base, domain='bad domain;')))
+        self.assertEqual(self.call('wifi_client', dict(base, anonymous_identity='anonymous@example.edu',
+                                                       domain='radius.example.edu')), {'ok': True})
+        self.assertEqual(self.calls(), ["yun-wifi client-eap eduroam wpa3-mixed peap MSCHAPV2 dan@example.edu "
+                                        "p@ss 'w$(id) anonymous@example.edu radius.example.edu"])
 
     def test_sketch_flash(self):
         self.assertIn('error', self.call('sketch_flash'))

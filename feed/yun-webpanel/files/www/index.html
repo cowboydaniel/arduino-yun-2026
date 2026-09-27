@@ -156,9 +156,30 @@
                   <option value="sae">WPA3 Personal</option>
                   <option value="psk-mixed">WPA/WPA2 Personal</option>
                   <option value="none">None (open)</option>
+                  <option value="wpa3-mixed">WPA2/WPA3 Enterprise (eduroam, school, work)</option>
+                  <option value="wpa2">WPA2 Enterprise</option>
+                  <option value="wpa3">WPA3 Enterprise</option>
                 </select>
               </label>
               <label class="field" id="join-key-field"><span>Password</span><input id="join-key" type="password" minlength="8" autocomplete="off"></label>
+              <div id="join-eap" hidden>
+                <label class="field"><span>Username</span><input id="join-identity" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="you@example.edu"></label>
+                <label class="field"><span>Password</span><input id="join-password" type="password" autocomplete="off"></label>
+                <div class="field-row">
+                  <label class="field"><span>Method</span>
+                    <select id="join-eap-type">
+                      <option value="peap">PEAP</option>
+                      <option value="ttls">TTLS</option>
+                    </select>
+                  </label>
+                  <label class="field"><span>Inner authentication</span>
+                    <select id="join-phase2"></select>
+                  </label>
+                </div>
+                <label class="field"><span>Server domain <span class="muted">(recommended)</span></span><input id="join-domain" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="radius.example.edu"></label>
+                <p class="muted small">The name on your organisation's login server certificate, from its Wi-Fi setup instructions. With it, the Yún only sends your password to that server; without it, a fake network with the same name could collect it.</p>
+                <label class="field"><span>Anonymous identity <span class="muted">(optional)</span></span><input id="join-anon" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="anonymous@example.edu"></label>
+              </div>
               <p class="muted small">The Yún will drop off this network while it switches. If it can't join within a minute after rebooting, it goes back to setup mode.</p>
               <div class="card-actions">
                 <button class="btn btn-primary" type="submit">Join</button>

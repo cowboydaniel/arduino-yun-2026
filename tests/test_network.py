@@ -210,6 +210,47 @@ class NetworkSetupTest(unittest.TestCase):
         self.assertEqual(self.uci('wireless.yun_sta.encryption'), 'none')
         self.assertIsNone(self.uci('wireless.yun_sta.key'))
 
+    def test_enterprise_network(self):
+        self.first_boot()
+        yun_wifi = os.path.join(BASE, 'usr', 'bin', 'yun-wifi')
+        self.run_script(yun_wifi, 'client-eap', 'eduroam', 'wpa3-mixed', 'peap', 'MSCHAPV2',
+                        'dan@example.edu', "p@ss 'word", 'anonymous@example.edu', 'radius.example.edu')
+        for key, value in (('ssid', 'eduroam'), ('encryption', 'wpa3-mixed'), ('eap_type', 'peap'),
+                           ('auth', 'MSCHAPV2'), ('identity', 'dan@example.edu'), ('password', "p@ss 'word"),
+                           ('anonymous_identity', 'anonymous@example.edu'), ('ca_cert_usesystem', '1'),
+                           ('domain_suffix_match', 'radius.example.edu'), ('ieee80211w', '1'),
+                           ('disabled', '0')):
+            self.assertEqual(self.uci(f'wireless.yun_sta.{key}'), value, key)
+        self.assertIsNone(self.uci('wireless.yun_sta.key'))
+        self.assertEqual(self.uci('wireless.yun_ap.disabled'), '1')
+        self.assertEqual(self.run_script(yun_wifi, 'status').strip(), 'client')
+
+        # Back to a home network: no Enterprise settings left behind.
+        self.run_script(yun_wifi, 'client', 'Home', 'psk2', 'password1')
+        for key in ('eap_type', 'auth', 'identity', 'password', 'anonymous_identity',
+                    'ca_cert_usesystem', 'domain_suffix_match', 'ieee80211w'):
+            self.assertIsNone(self.uci(f'wireless.yun_sta.{key}'), key)
+        self.assertEqual(self.uci('wireless.yun_sta.key'), 'password1')
+
+    def test_enterprise_without_server_check(self):
+        self.first_boot()
+        self.run_script(os.path.join(BASE, 'usr', 'bin', 'yun-wifi'), 'client-eap', 'Campus', 'wpa2',
+                        'ttls', 'PAP', 'dan', 'secret', '', '')
+        self.assertEqual(self.uci('wireless.yun_sta.auth'), 'PAP')
+        self.assertIsNone(self.uci('wireless.yun_sta.ca_cert_usesystem'))
+        self.assertIsNone(self.uci('wireless.yun_sta.anonymous_identity'))
+        self.assertIsNone(self.uci('wireless.yun_sta.ieee80211w'))
+
+    def test_enterprise_rejects_bad_input(self):
+        self.first_boot()
+        yun_wifi = os.path.join(BASE, 'usr', 'bin', 'yun-wifi')
+        for args in (('Campus', 'psk2', 'peap', 'MSCHAPV2', 'dan', 'pw'),
+                     ('Campus', 'wpa2', 'tls', 'MSCHAPV2', 'dan', 'pw'),
+                     ('Campus', 'wpa2', 'peap', 'MSCHAPV2', 'dan', '')):
+            p = subprocess.run(['sh', yun_wifi, 'client-eap', *args], capture_output=True, text=True, env=self.env)
+            self.assertEqual(p.returncode, 1, args)
+        self.assertEqual(self.uci('wireless.yun_sta.disabled'), '1')
+
     def test_client_needs_a_key(self):
         self.first_boot()
         p = subprocess.run(['sh', os.path.join(BASE, 'usr', 'bin', 'yun-wifi'), 'client', 'Home', 'psk2'],

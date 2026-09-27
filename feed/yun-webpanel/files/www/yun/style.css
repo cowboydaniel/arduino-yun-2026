@@ -126,13 +126,14 @@ p { margin: 0 0 .75rem; }
 
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.1rem; }
 .span-2 { grid-column: span 2; }
+.grid > * { min-width: 0; }
 
 /* Cards */
 .card {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: var(--shadow); padding: 1.15rem 1.25rem;
 }
-.card-head { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .9rem; }
+.card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .4rem .75rem; margin-bottom: .9rem; }
 .card-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
 .big { font-size: 1.15rem; font-weight: 620; }
 
@@ -202,7 +203,8 @@ p { margin: 0 0 .75rem; }
 .btn-block { width: 100%; }
 
 /* Forms */
-.field { display: flex; flex-direction: column; gap: .3rem; margin-bottom: .9rem; font-size: .88rem; font-weight: 600; }
+.field { display: flex; flex-direction: column; gap: .3rem; margin-bottom: .9rem; font-size: .88rem; font-weight: 600; min-width: 0; }
+.field input, .field select { width: 100%; }
 input, select {
   font: inherit; font-weight: 400; color: var(--text); background: var(--surface);
   border: 1px solid var(--border); border-radius: 10px; padding: .55rem .75rem; min-width: 0;
@@ -249,6 +251,7 @@ input:focus, select:focus, .btn:focus-visible, .dropzone:focus-within { outline:
 .networks .signal i { width: 4px; }
 .networks .name { font-weight: 600; flex: 1; }
 .networks .current { color: var(--accent); font-size: .8rem; font-weight: 650; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
 .join-form { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); max-width: 420px; }
 
 /* Table */

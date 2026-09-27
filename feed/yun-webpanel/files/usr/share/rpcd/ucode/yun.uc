@@ -45,6 +45,9 @@ const ZONES = {
 };
 
 const ENCRYPTIONS = ['none', 'psk', 'psk2', 'psk-mixed', 'sae', 'sae-mixed'];
+// WPA2/WPA3-Enterprise (802.1X), such as eduroam.
+const EAP_ENCRYPTIONS = ['wpa2', 'wpa3-mixed', 'wpa3'];
+const EAP_METHODS = { peap: [ 'MSCHAPV2' ], ttls: [ 'PAP', 'MSCHAPV2', 'MSCHAP', 'CHAP', 'EAP-MSCHAPV2' ] };
 const SKETCH = '/tmp/sketch.hex';
 
 function trim_read(path) {
@@ -146,7 +149,14 @@ function scan_encryption(crypto) {
 	if (sae && psk) return 'sae-mixed';
 	if (sae) return 'sae';
 	if (psk) return 'psk2';
-	return eap ? 'eap' : 'none';
+	if (eap) {
+		// WPA3-Enterprise uses SHA-256 key management.
+		for (let k in keys)
+			if (index(lc(k), 'sha256') >= 0 || index(lc(k), 'suite-b') >= 0)
+				return 'wpa3-mixed';
+		return 'wpa2';
+	}
+	return 'none';
 }
 
 // iwinfo's link quality is 0..70.
@@ -409,16 +419,37 @@ const methods = {
 					quality: quality_pct(cell.quality),
 					encryption: scan_encryption(cell.crypto),
 				});
-			return { results: filter(results, r => r.ssid != null && r.ssid != '' && r.encryption != 'eap') };
+			return { results: filter(results, r => r.ssid != null && r.ssid != '') };
 		}
 	},
 
 	wifi_client: {
-		args: { ssid: '', encryption: '', key: '' },
+		args: { ssid: '', encryption: '', key: '', eap: '', phase2: '', identity: '',
+			password: '', anonymous_identity: '', domain: '' },
 		call: function(req) {
-			let ssid = req.args.ssid, enc = req.args.encryption, key = req.args.key ?? '';
+			let a = req.args;
+			let ssid = a.ssid, enc = a.encryption, key = a.key ?? '';
 			if (type(ssid) != 'string' || length(ssid) < 1 || length(ssid) > 32)
 				return { error: 'The network name must be 1 to 32 characters' };
+			if (enc in EAP_ENCRYPTIONS) {
+				let eap = a.eap ?? 'peap', phase2 = a.phase2 ?? EAP_METHODS[eap]?.[0];
+				let identity = a.identity ?? '', password = a.password ?? '';
+				let anon = a.anonymous_identity ?? '', domain = a.domain ?? '';
+				if (!(eap in EAP_METHODS) || !(phase2 in EAP_METHODS[eap]))
+					return { error: 'Unsupported EAP method' };
+				if (type(identity) != 'string' || !length(identity) || length(identity) > 253)
+					return { error: 'Enter your username' };
+				if (type(password) != 'string' || !length(password) || length(password) > 256)
+					return { error: 'Enter your password' };
+				if (type(anon) != 'string' || length(anon) > 253 || type(domain) != 'string' ||
+				    (domain != '' && !match(domain, /^[A-Za-z0-9.-]{1,253}$/)))
+					return { error: 'Invalid server domain' };
+				if (bad_chars(ssid + identity + password + anon))
+					return { error: 'Invalid characters' };
+				spawn_later(2, 'exec yun-wifi client-eap "$@"',
+					[ ssid, enc, eap, phase2, identity, password, anon, domain ]);
+				return { ok: true };
+			}
 			if (!(enc in ENCRYPTIONS))
 				return { error: 'Unsupported security type' };
 			if (enc != 'none' && (length(key) < 8 || length(key) > 63))
