@@ -138,7 +138,8 @@ if [ $KEEP = 1 ]; then
 		echo "from=$(grep -o "OpenWrt-Yun built on [^.]*\|built=.*" $ROOT/etc/banner $ROOT/etc/arduino/openwrt-yun-release 2>/dev/null | head -n 1)"
 	} > "$d/info"
 	chmod 600 "$d/root-shadow" "$d/config/"* 2>/dev/null || true
-	tar -czf "$SETTINGS" -C "$work" etc
+	# It holds the root password hash and the Wi-Fi password.
+	( umask 077; tar -czf "$SETTINGS" -C "$work" etc )
 	echo "  kept: Wi-Fi, hostname, time zone, root password, SSH keys"
 fi
 

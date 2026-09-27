@@ -357,6 +357,12 @@ class MigrateTest(unittest.TestCase):
         write(os.path.join(self.proc, 'meminfo'), 'MemTotal:          60904 kB\nMemFree:            3248 kB\n')
         self.assertIn('only 3248 KB of RAM free', self.migrate('-t', '-n', self.image).stdout)
 
+    def test_settings_archive_is_private(self):
+        # It holds the root password hash and the Wi-Fi password.
+        p = self.migrate('-t', self.image)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(os.stat(self.settings).st_mode & 0o777, 0o600)
+
     def test_refuses_wrong_images_and_boards(self):
         bad = os.path.join(self.tmp.name, 'bad.bin')
         import gzip
