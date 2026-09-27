@@ -1,6 +1,6 @@
 #!/bin/sh /etc/rc.common
-# Swap to the SD card if one turns up in the first two minutes after boot
-# (see /usr/bin/yun-sdswap).
+# Swap to the SD card if one turns up within two minutes of the end of boot
+# (see /usr/bin/yun-sdswap). START=99: this is the last thing boot starts.
 
 START=99
 USE_PROCD=1

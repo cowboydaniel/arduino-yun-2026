@@ -2,7 +2,8 @@
 # Swap to a file on the SD card, which gives a 64 MB Yun room for programs
 # that don't fit in RAM.
 #
-#   yun-sdswap wait     at boot: use a card found in the first two minutes
+#   yun-sdswap wait     at boot: use a card that turns up within two minutes
+#                       of the end of boot (some cards take most of a minute)
 #   yun-sdswap start    use the card in the Yun now, if there is one
 #   yun-sdswap stop     stop swapping to the card: do this before taking it out
 #   yun-sdswap status
@@ -17,7 +18,7 @@
 PROC=${PROC:-/proc}
 NAME=yun-swapfile
 PRIORITY=10         # zram-swap uses 100, so RAM is used first
-WAIT_UNTIL=120      # seconds after boot
+WAIT=${YUN_SDSWAP_WAIT:-120}   # seconds to wait for a card, from the end of boot
 
 say() {
 	echo "yun-sdswap: $*"
@@ -79,12 +80,13 @@ start() {
 
 case "$1" in
 wait)
+	waited=0
 	while :; do
 		start
 		[ $? = 2 ] || exit 0
-		up=$(cut -d. -f1 $PROC/uptime)
-		[ "$up" -ge $WAIT_UNTIL ] && exit 0
+		[ $waited -ge $WAIT ] && exit 0
 		sleep 5
+		waited=$((waited + 5))
 	done
 	;;
 start)

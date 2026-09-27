@@ -12,10 +12,10 @@ index 95373e5..e14b911 100644
  asus,zenwifi-cd6n|\
 diff --git a/target/linux/ath79/dts/ar9331_arduino_yun-2026.dts b/target/linux/ath79/dts/ar9331_arduino_yun-2026.dts
 new file mode 100644
-index 0000000..bbc6de4
+index 0000000..c27c332
 --- /dev/null
 +++ b/target/linux/ath79/dts/ar9331_arduino_yun-2026.dts
-@@ -0,0 +1,240 @@
+@@ -0,0 +1,265 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
 +
 +#include "ar9331.dtsi"
@@ -31,6 +31,28 @@ index 0000000..bbc6de4
 +
 +	chosen {
 +		bootargs = "console=ttyATH0,250000";
++	};
++
++	/*
++	 * The kernel uImage carries the squashfs magic so that the stock
++	 * Linino sysupgrade accepts the image as-is.
++	 */
++	virtual_flash {
++		compatible = "mtd-concat";
++		devices = <&fwconcat0 &fwconcat1>;
++
++		partitions {
++			compatible = "fixed-partitions";
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			partition@0 {
++				compatible = "openwrt,uimage", "denx,uimage";
++				openwrt,ih-magic = <0x68737173>;
++				label = "firmware";
++				reg = <0x0 0x0>;
++			};
++		};
 +	};
 +
 +	ahb {
@@ -183,23 +205,26 @@ index 0000000..bbc6de4
 +			/*
 +			 * The stock U-Boot always boots the uImage at 0x9fea0000,
 +			 * which was the kernel partition of the original Linino
-+			 * layout. That slot is only 1280k, so it now holds a small
-+			 * lzma-loader that starts the real kernel from the front
-+			 * of the firmware partition. The kernel uImage carries the
-+			 * squashfs magic so that the stock Linino sysupgrade
-+			 * accepts the image as-is.
++			 * layout. That 64k block now holds a small lzma-loader
++			 * that starts the real kernel from 0x50000. The flash on
++			 * both sides of it is joined into one firmware partition
++			 * (virtual_flash above), so the 1216k after the loader is
++			 * space for settings and packages too.
 +			 */
-+			partition@50000 {
-+				compatible = "openwrt,uimage", "denx,uimage";
-+				openwrt,ih-magic = <0x68737173>;
-+				label = "firmware";
++			fwconcat0: partition@50000 {
++				label = "fwconcat0";
 +				reg = <0x50000 0xe50000>;
 +			};
 +
 +			partition@ea0000 {
 +				label = "loader";
-+				reg = <0xea0000 0x140000>;
++				reg = <0xea0000 0x10000>;
 +				read-only;
++			};
++
++			fwconcat1: partition@eb0000 {
++				label = "fwconcat1";
++				reg = <0xeb0000 0x130000>;
 +			};
 +
 +			partition@fe0000 {
@@ -307,10 +332,10 @@ index 1918a8a..f722650 100644
  	rm -rf $@.relocate
  	$(CP) ../../generic/image/relocate $@.relocate
 diff --git a/target/linux/ath79/image/generic.mk b/target/linux/ath79/image/generic.mk
-index c5eb589..02b2fd6 100644
+index c5eb589..11fbf36 100644
 --- a/target/linux/ath79/image/generic.mk
 +++ b/target/linux/ath79/image/generic.mk
-@@ -386,6 +386,39 @@ define Device/arduino_yun
+@@ -386,6 +386,50 @@ define Device/arduino_yun
  endef
  TARGET_DEVICES += arduino_yun
  
@@ -321,13 +346,20 @@ index c5eb589..02b2fd6 100644
 +# kernel from the start of the firmware partition at 0x50000. The kernel uImage
 +# uses the squashfs magic, which is what the stock Linino sysupgrade checks for.
 +#
++# The firmware partition is the flash before the loader (0x50000-0xea0000)
++# and after it (0xeb0000-0xfe0000), joined with mtd-concat, so the settings
++# and packages get the space after the loader too.
++#
 +# linino-upgrade.bin is the whole 0x50000-0xfe0000 region, gzip'd, and is
-+# flashed from stock Linino with its own sysupgrade. The gap between the rootfs
-+# and the loader is padded with 0xff, so the settings that the stock mtd writes
-+# at the 0xdeadc0de marker are followed by erased flash.
++# flashed from stock Linino with its own sysupgrade. The kernel and rootfs
++# must fit before the loader. Everything else is 0xff, so the settings that
++# the stock mtd writes at the 0xdeadc0de marker are followed by erased flash,
++# and the old Linino kernel after the loader is erased.
 +#
 +# sysupgrade.bin is used for later updates and only rewrites the firmware
-+# partition.
++# partition, never the loader. Boards on 2026.1-2026.3 have the old
++# 14656k firmware partition and write it there, so it must fit in that too
++# (checked by YUN_OLD_FIRMWARE_SIZE below).
 +define Device/arduino_yun-2026
 +  $(Device/loader-okli-uimage)
 +  SOC := ar9331
@@ -339,11 +371,15 @@ index c5eb589..02b2fd6 100644
 +  LOADER_FLASH_OFFS := 0x050000
 +  LOADER_KERNEL_MAGIC := 0x68737173
 +  KERNEL := kernel-bin | append-dtb | lzma | uImage lzma -M 0x68737173
-+  IMAGE_SIZE := 14656k
++  IMAGE_SIZE := 15872k
++  YUN_OLD_FIRMWARE_SIZE := 14656k
 +  IMAGES += linino-upgrade.bin
++  IMAGE/sysupgrade.bin := append-kernel | pad-to $$$$(BLOCKSIZE) | \
++	append-rootfs | pad-rootfs | check-size $$$$(YUN_OLD_FIRMWARE_SIZE) | \
++	append-metadata
 +  IMAGE/linino-upgrade.bin := append-kernel | pad-to $$$$(BLOCKSIZE) | \
-+	append-rootfs | pad-rootfs | check-size | pad-to-ff 14656k | \
-+	append-loader-okli-uimage $(1) | gzip
++	append-rootfs | pad-rootfs | check-size 14656k | pad-to-ff 14656k | \
++	append-loader-okli-uimage $(1) | pad-to-ff 15936k | gzip
 +endef
 +TARGET_DEVICES += arduino_yun-2026
 +

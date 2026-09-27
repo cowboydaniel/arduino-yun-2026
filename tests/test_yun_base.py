@@ -325,10 +325,8 @@ class SdSwapTest(unittest.TestCase):
         self.set_mounts(f'/dev/sda1 {self.card} vfat rw,relatime,fmask=0022 0 0')
         with open(os.path.join(self.proc, 'swaps'), 'w') as f:
             f.write('Filename\t\t\t\tType\t\tSize\t\tUsed\t\tPriority\n/dev/zram0 partition 27808 0 100\n')
-        with open(os.path.join(self.proc, 'uptime'), 'w') as f:
-            f.write('300.12 250.00\n')
         self.env = dict(os.environ, PATH=b + os.pathsep + os.environ['PATH'], PROC=self.proc,
-                        CALLS=self.calls, SD_SWAP='', SD_SWAP_SIZE='1')
+                        CALLS=self.calls, SD_SWAP='', SD_SWAP_SIZE='1', YUN_SDSWAP_WAIT='0')
 
     def set_mounts(self, *lines):
         with open(os.path.join(self.proc, 'mounts'), 'w') as f:
@@ -389,7 +387,7 @@ class SdSwapTest(unittest.TestCase):
 
     def test_no_card(self):
         self.set_mounts()
-        p = self.sdswap('wait')                 # uptime is past two minutes
+        p = self.sdswap('wait')
         self.assertEqual(p.returncode, 0)
         self.assertEqual(self.recorded(), [])
         self.assertIn('no SD card', self.sdswap('start').stdout)
@@ -418,6 +416,16 @@ class SdSwapTest(unittest.TestCase):
         p = self.sdswap('wait', SD_SWAP='0')
         self.assertEqual(self.recorded(), [])
         self.assertFalse(os.path.exists(self.swapfile))
+
+    def test_slow_card_is_waited_for(self):
+        # Cards like a 64 GB one appear most of a minute after boot.
+        self.set_mounts()
+        with open(os.path.join(self.bin, 'sleep'), 'w') as f:
+            f.write(f'#!/bin/sh\nprintf "/dev/sda1 {self.card} vfat rw,relatime 0 0\\n" >> "$PROC/mounts"\n')
+        os.chmod(os.path.join(self.bin, 'sleep'), 0o755)
+        p = self.sdswap('wait', YUN_SDSWAP_WAIT='120')
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(self.recorded(), [f'mkswap {self.swapfile}', f'swapon -p 10 {self.swapfile}'])
 
     def test_stop(self):
         self.sdswap('start')

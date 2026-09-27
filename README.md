@@ -7,7 +7,8 @@ Modern OpenWrt for the Arduino Yún, with updates and all the old Arduino stuff.
 - OpenWrt 25.12 with a current kernel, installed **in place** from the stock Linino firmware with its own updater. No serial cable, U-Boot prompt or TFTP needed, and U-Boot is never touched. [How it works](docs/design.md).
 - The Bridge library's Linux side, ported to Python 3: existing sketches run unchanged.
 - Uploading sketches over Wi-Fi from the Arduino IDE, or from the web panel.
-- An SD card is mounted at `/mnt/sd` like on stock, and if one is in within two minutes of boot, a 256 MB swap file on it gives the 64 MB board room to breathe. Run `yun-sdswap stop` before taking the card out; turn it off with `uci set arduino.@arduino[0].sd_swap=0`.
+- About 4.3 MB of flash free for settings and packages, 1.2 MB more than before 2026.4, with nothing left out: the space after the boot loader is used too.
+- An SD card is mounted at `/mnt/sd` like on stock, and if one turns up within two minutes of the end of boot, a 256 MB swap file on it gives the 64 MB board room to breathe. Run `yun-sdswap stop` before taking the card out; turn it off with `uci set arduino.@arduino[0].sd_swap=0`.
 - A new web panel: status, Wi-Fi setup, drag and drop sketch upload, the live datastore, a terminal for running Linux commands from any browser (phones too), settings, and firmware updates you can follow as they download.
 - The stock REST API (`/arduino`, `/data`, `/mailbox`), the WLAN RST button, the setup access point, and keeping your settings when moving from stock.
 
