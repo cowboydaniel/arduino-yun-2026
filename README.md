@@ -1,1 +1,1 @@
-Modern Open WRT for Yun with updates and all the old Arduino stuff
+Modern OpenWrt for the Arduino Yún, with updates and all the old Arduino stuff.
