@@ -433,6 +433,62 @@ class SdSwapTest(unittest.TestCase):
         self.assertEqual(self.recorded()[-1], f'swapoff {self.swapfile}')
 
 
+class SdHotplugTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        t = self.tmp.name
+        self.proc = os.path.join(t, 'proc')
+        self.mnt = os.path.join(t, 'mnt')
+        os.makedirs(self.proc)
+        os.makedirs(self.mnt)
+        os.symlink('/mnt/sda1', os.path.join(self.mnt, 'sd'))     # as installed
+        self.calls = os.path.join(t, 'calls')
+        self.block = os.path.join(t, 'block')
+        # Like "block hotplug": mount the device it's told about.
+        with open(self.block, 'w') as f:
+            f.write('#!/bin/sh\necho "block $* $ACTION $DEVNAME" >> "$CALLS"\n'
+                    '[ "$ACTION" = add ] && echo "/dev/$DEVNAME $MNT/$DEVNAME ext4 rw 0 0" >> "$PROC/mounts"\n')
+        os.chmod(self.block, 0o755)
+        with open(os.path.join(self.proc, 'mounts'), 'w') as f:
+            f.write('/dev/root /rom squashfs ro 0 0\n')
+
+    def hotplug(self, **env):
+        return subprocess.run(['sh', os.path.join(FILES, 'etc', 'hotplug.d', 'block', '20-yun-sd')],
+                              capture_output=True, text=True,
+                              env=dict(os.environ, BLOCK=self.block, PROC=self.proc, MNT=self.mnt,
+                                       CALLS=self.calls, **env))
+
+    def sd(self):
+        return os.readlink(os.path.join(self.mnt, 'sd'))
+
+    def recorded(self):
+        try:
+            with open(self.calls) as f:
+                return f.read().splitlines()
+        except FileNotFoundError:
+            return []
+
+    def test_late_card_without_partitions_is_mounted(self):
+        self.hotplug(ACTION='change', DISK_MEDIA_CHANGE='1', DEVTYPE='disk', DEVNAME='sda')
+        self.assertEqual(self.recorded(), ['block hotplug add sda'])
+        self.assertEqual(self.sd(), os.path.join(self.mnt, 'sda'))
+
+    def test_partition_mounted_by_10_mount(self):
+        with open(os.path.join(self.proc, 'mounts'), 'a') as f:
+            f.write('/dev/sda1 /mnt/sda1 vfat rw 0 0\n')
+        self.hotplug(ACTION='add', DEVTYPE='partition', DEVNAME='sda1')
+        self.assertEqual(self.recorded(), [])
+        self.assertEqual(self.sd(), '/mnt/sda1')
+
+    def test_other_devices_and_events_are_ignored(self):
+        self.hotplug(ACTION='change', DISK_MEDIA_CHANGE='1', DEVTYPE='disk', DEVNAME='mtdblock6')
+        self.hotplug(ACTION='change', DEVTYPE='disk', DEVNAME='sda')
+        self.hotplug(ACTION='remove', DEVTYPE='disk', DEVNAME='sda')
+        self.assertEqual(self.recorded(), [])
+        self.assertEqual(self.sd(), '/mnt/sda1')
+
+
 class YunUpdateTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

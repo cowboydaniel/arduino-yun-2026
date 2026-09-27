@@ -1,0 +1,30 @@
+#!/bin/sh
+# The Yun's SD slot is a USB card reader. The reader shows up within
+# seconds of boot, but answers "not ready" until it has set the card up,
+# which can take most of a minute. The kernel then reports a media change
+# (fstools polls for it every 2 s), not a new disk. For a card with a
+# partition table the kernel then adds sda1 and 10-mount mounts it, but a
+# card with its filesystem on the whole disk (as the stock extroot setup
+# left some) gets no "add", so mount it here. Then point /mnt/sd, where
+# sketches expect the card, at wherever it was mounted.
+
+BLOCK=${BLOCK:-/sbin/block}
+PROC=${PROC:-/proc}
+MNT=${MNT:-/mnt}
+
+case "$DEVNAME" in
+sd*) ;;
+*) exit 0 ;;
+esac
+
+if [ "$ACTION" = change ] && [ -n "$DISK_MEDIA_CHANGE" ] && [ "$DEVTYPE" = disk ]; then
+	ACTION=add $BLOCK hotplug 2>/dev/null
+fi
+
+case "$ACTION" in
+add|change)
+	mp=$(awk '$1 ~ /^\/dev\/sd[a-z][0-9]*$/ { print $2; exit }' $PROC/mounts)
+	[ -n "$mp" ] && [ "$(readlink $MNT/sd)" != "$mp" ] && ln -sfn "$mp" $MNT/sd
+	;;
+esac
+exit 0

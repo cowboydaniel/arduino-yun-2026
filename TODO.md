@@ -33,7 +33,7 @@ Don't flash the test Yún until its owner confirms. Follow [docs/recovery.md](do
 - [ ] Upload a `.hex` from the Yún Panel, and the REST API (`/arduino/...`, `/data/...`, `/mailbox/...`) with and without the password.
 - [ ] Wi-Fi: joining from the panel, falling back to setup mode when the network is gone, WLAN RST for 5 s and 30 s.
 - [ ] `yun-update` from one release to the next.
-- [ ] SD card (2026.4): mounted at /mnt/sda1 with /mnt/sd pointing to it, and `yun-sdswap` makes and uses its 256 MB swap file within two minutes of the end of boot (a 64 GB card takes about 49 s to appear) (FAT32, exFAT and ext4 cards). Check `cat /proc/swaps` and how long the first boot takes to write the file.
+- [ ] SD card (2026.4): mounted at /mnt/sda1 with /mnt/sd pointing to it, and `yun-sdswap` makes and uses its 256 MB swap file within two minutes of the end of boot (a 64 GB card takes about 49 s to appear), including a card with no partition table (filesystem on the whole of /dev/sda, as stock extroot left it), which only gets mounted by `20-yun-sd` (FAT32, exFAT and ext4 cards). Check `cat /proc/swaps` and how long the first boot takes to write the file.
 - [ ] Flash layout (2026.4): `firmware` is now the flash on both sides of the loader, joined with mtd-concat. Check on the board, from 2026.3 with `yun-update` and from stock with `yun-migrate`: `cat /proc/mtd` shows `fwconcat0`, `loader` (64k), `fwconcat1` and `firmware`; `df -h /overlay` shows about 4.3 MB free; settings are kept; and the Yun still boots after a second update.
 
 ## Done without hardware

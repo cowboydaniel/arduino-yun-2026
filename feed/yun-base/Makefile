@@ -45,8 +45,12 @@ define Package/yun-base/install
 	$(INSTALL_DATA) ./files/etc/umdns/arduino.json $(1)/etc/umdns/
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/ieee80211 $(1)/lib/upgrade
 	$(INSTALL_BIN) ./files/etc/hotplug.d/ieee80211/20-yun-wifi $(1)/etc/hotplug.d/ieee80211/
+	$(INSTALL_DIR) $(1)/etc/hotplug.d/block
+	$(INSTALL_BIN) ./files/etc/hotplug.d/block/20-yun-sd $(1)/etc/hotplug.d/block/
 	$(INSTALL_DATA) ./files/lib/upgrade/yun-free-ram.sh $(1)/lib/upgrade/
 	# Where the stock firmware put the SD card for sketches and web pages.
+	# /mnt/sd is pointed at the card's real mount point when it appears
+	# (hotplug.d/block/20-yun-sd); /mnt/sda1 is the usual one.
 	$(INSTALL_DIR) $(1)/mnt $(1)/www
 	$(LN) /mnt/sda1 $(1)/mnt/sd
 	$(LN) /mnt/sd/arduino/www $(1)/www/sd
