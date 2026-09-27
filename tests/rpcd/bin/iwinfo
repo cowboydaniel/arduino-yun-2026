@@ -1,0 +1,49 @@
+#!/bin/sh
+# Fake iwinfo, printing in the format of the iwinfo command line tool.
+case "$2" in
+info) cat <<'X'
+wlan0     ESSID: "Workshop"
+          Access Point: 11:22:33:44:55:66
+          Mode: Client  Channel: 6 (2.437 GHz)  HT Mode: HT20
+          Center Channel 1: 6 2: unknown
+          Tx-Power: 17 dBm  Link Quality: 49/70
+          Signal: -61 dBm  Noise: -95 dBm
+          Bit Rate: 65.0 MBit/s
+          Encryption: WPA2 PSK (CCMP)
+          Type: nl80211  HW Mode(s): 802.11bgn
+X
+;;
+scan) cat <<'X'
+Cell 01 - Address: 11:22:33:44:55:66
+          ESSID: "Workshop"
+          Mode: Master  Channel: 6
+          Signal: -61 dBm  Quality: 49/70
+          Encryption: WPA2 PSK (CCMP)
+
+Cell 02 - Address: AA:BB:CC:DD:EE:FF
+          ESSID: "Cafe <b>Guest</b>"
+          Mode: Master  Channel: 11
+          Signal: -80 dBm  Quality: 30/70
+          Encryption: none
+
+Cell 03 - Address: 00:00:00:00:00:01
+          ESSID: "Newer"
+          Mode: Master  Channel: 1
+          Signal: -70 dBm  Quality: 40/70
+          Encryption: mixed WPA2/WPA3 PSK/SAE (CCMP)
+
+Cell 04 - Address: 00:00:00:00:00:02
+          ESSID: "Office"
+          Mode: Master  Channel: 1
+          Signal: -70 dBm  Quality: 40/70
+          Encryption: WPA2 802.1X (CCMP)
+
+Cell 05 - Address: 00:00:00:00:00:03
+          ESSID: unknown
+          Mode: Master  Channel: 3
+          Signal: -75 dBm  Quality: 35/70
+          Encryption: WPA2 PSK (CCMP)
+X
+;;
+assoclist) printf '11:11:11:11:11:11  -50 dBm / -95 dBm (SNR 45)  10 ms ago\n' ;;
+esac

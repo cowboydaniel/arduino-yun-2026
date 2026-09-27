@@ -2,7 +2,12 @@
 # Build the Arduino Yun 2026 firmware.
 #
 # Clones OpenWrt at the pinned release into $BUILD_DIR (default ../yun-build),
-# applies the patches in openwrt/patches, and builds the arduino_yun-2026 image.
+# applies the patches in openwrt/patches, adds feed/ as the "arduino" package
+# feed, and builds the arduino_yun-2026 image.
+#
+# BARE=1 builds plain OpenWrt on the new flash layout, without the Arduino
+# packages: that's the image for a first boot test on hardware.
+#
 # The full build needs about 15 GB of disk space.
 
 set -e
@@ -28,10 +33,13 @@ for p in "$REPO_DIR"/openwrt/patches/*.patch; do
 	git apply "$p"
 done
 
+cp feeds.conf.default feeds.conf
+echo "src-link arduino $REPO_DIR/feed" >> feeds.conf
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 
 cp "$REPO_DIR/openwrt/config.seed" .config
+[ "${BARE:-0}" = 1 ] || cat "$REPO_DIR/openwrt/config-yun.seed" >> .config
 make defconfig
 
 make -j"$(nproc)" download
@@ -40,3 +48,6 @@ make -j"$(nproc)" "$@"
 echo
 echo "Images:"
 ls -l bin/targets/ath79/generic/*arduino_yun-2026*
+
+echo
+python3 "$REPO_DIR/tools/check-image.py" bin/targets/ath79/generic/*arduino_yun-2026*linino-upgrade.bin

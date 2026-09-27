@@ -60,5 +60,11 @@ fi
 
 uci set wireless.yun_ap.ssid="$(yun-wifi ssid)"
 
+# Announce the board (and _arduino._tcp for the IDE) on every network.
+uci -q delete umdns.@umdns[0].network
+for n in lan wan wwan; do
+	uci add_list umdns.@umdns[0].network="$n"
+done
+
 uci commit
 exit 0

@@ -1,0 +1,11 @@
+#!/bin/sh
+# Serve the REST API that sketches and scripts written for the stock
+# firmware call, next to the Yun Panel at /.
+
+for p in arduino data mailbox; do
+	uci -q del_list uhttpd.main.ucode_prefix="/$p=/usr/share/yun/rest.uc"
+	uci add_list uhttpd.main.ucode_prefix="/$p=/usr/share/yun/rest.uc"
+done
+uci set uhttpd.main.ubus_prefix='/ubus'
+uci commit uhttpd
+exit 0

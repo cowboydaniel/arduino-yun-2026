@@ -1,0 +1,6 @@
+#!/bin/sh
+cat <<'X'
+Filesystem           1K-blocks      Used Available Use% Mounted on
+/dev/mtdblock6            5504      1856      3648  34% /overlay
+/dev/sda1             60000000   1100000  58900000   2% /mnt/sda1
+X

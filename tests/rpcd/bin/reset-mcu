@@ -1,0 +1,2 @@
+#!/bin/sh
+echo "reset-mcu $*" >> "$CALL_LOG"

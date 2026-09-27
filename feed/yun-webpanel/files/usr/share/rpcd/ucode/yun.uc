@@ -1,0 +1,489 @@
+#!/usr/bin/env ucode
+// SPDX-License-Identifier: GPL-2.0-or-later
+//
+// The "yun" ubus object behind the Yun Panel (/www/yun/app.js).
+//
+// Wi-Fi details come from the iwinfo command line tool rather than the
+// iwinfo ubus object, because that object lives in rpcd itself and calling
+// it from here would block on ourselves.
+
+'use strict';
+
+import { readfile, writefile, popen, stat, glob, unlink, access } from 'fs';
+import { cursor } from 'uci';
+import * as ubus from 'ubus';
+import * as bridge from 'yun.bridge';
+
+// POSIX TZ strings for the time zones the panel offers.
+const ZONES = {
+	'UTC': 'UTC0',
+	'Africa/Johannesburg': 'SAST-2',
+	'America/Chicago': 'CST6CDT,M3.2.0,M11.1.0',
+	'America/Denver': 'MST7MDT,M3.2.0,M11.1.0',
+	'America/Los_Angeles': 'PST8PDT,M3.2.0,M11.1.0',
+	'America/New_York': 'EST5EDT,M3.2.0,M11.1.0',
+	'America/Sao_Paulo': '<-03>3',
+	'America/Toronto': 'EST5EDT,M3.2.0,M11.1.0',
+	'Asia/Dubai': '<+04>-4',
+	'Asia/Kolkata': 'IST-5:30',
+	'Asia/Shanghai': 'CST-8',
+	'Asia/Singapore': '<+08>-8',
+	'Asia/Tokyo': 'JST-9',
+	'Australia/Adelaide': 'ACST-9:30ACDT,M10.1.0,M4.1.0/3',
+	'Australia/Brisbane': 'AEST-10',
+	'Australia/Melbourne': 'AEST-10AEDT,M10.1.0,M4.1.0/3',
+	'Australia/Perth': 'AWST-8',
+	'Australia/Sydney': 'AEST-10AEDT,M10.1.0,M4.1.0/3',
+	'Europe/Amsterdam': 'CET-1CEST,M3.5.0,M10.5.0/3',
+	'Europe/Berlin': 'CET-1CEST,M3.5.0,M10.5.0/3',
+	'Europe/London': 'GMT0BST,M3.5.0/1,M10.5.0',
+	'Europe/Madrid': 'CET-1CEST,M3.5.0,M10.5.0/3',
+	'Europe/Paris': 'CET-1CEST,M3.5.0,M10.5.0/3',
+	'Europe/Rome': 'CET-1CEST,M3.5.0,M10.5.0/3',
+	'Pacific/Auckland': 'NZST-12NZDT,M9.5.0,M4.1.0/3',
+};
+
+const ENCRYPTIONS = ['none', 'psk', 'psk2', 'psk-mixed', 'sae', 'sae-mixed'];
+const SKETCH = '/tmp/sketch.hex';
+
+function trim_read(path) {
+	let s = readfile(path);
+	return s != null ? trim(s) : null;
+}
+
+function num(path) {
+	let s = trim_read(path);
+	return s != null ? +s : null;
+}
+
+// Run a fixed command line (never with user input in it) and return its
+// output and exit code.
+function run(cmd) {
+	let p = popen(cmd + ' 2>&1', 'r');
+	if (!p)
+		return { code: -1, output: '' };
+	let out = p.read('all') ?? '';
+	let code = p.close();
+	return { code, output: out };
+}
+
+// Start a command in the background, detached, after `delay` seconds. The
+// arguments are passed to the shell as $1, $2, ... so they are never parsed
+// as shell code.
+function spawn_later(delay, script, args) {
+	system(['/bin/sh', '-c',
+		`(sleep ${int(delay)}; ${script}) </dev/null >/dev/null 2>&1 &`,
+		'sh', ...(args ?? [])]);
+}
+
+function netifd_status(iface) {
+	let conn = ubus.connect();
+	let st = conn?.call(`network.interface.${iface}`, 'status');
+	conn?.disconnect();
+	return st;
+}
+
+function wireless_status() {
+	let conn = ubus.connect();
+	let st = conn?.call('network.wireless', 'status');
+	conn?.disconnect();
+	return st;
+}
+
+function ipv4_of(st) {
+	return st?.['ipv4-address']?.[0]?.address;
+}
+
+function gateway_of(st) {
+	for (let r in st?.route ?? [])
+		if (r.target == '0.0.0.0' && r.mask == 0)
+			return r.nexthop;
+	return null;
+}
+
+function netdev(ifname) {
+	if (!ifname || !stat(`/sys/class/net/${ifname}`))
+		return {};
+	return {
+		mac: uc(trim_read(`/sys/class/net/${ifname}/address`) ?? ''),
+		carrier: num(`/sys/class/net/${ifname}/carrier`) == 1,
+		rx_bytes: num(`/sys/class/net/${ifname}/statistics/rx_bytes`),
+		tx_bytes: num(`/sys/class/net/${ifname}/statistics/tx_bytes`),
+	};
+}
+
+// iwinfo prints e.g. "WPA2 PSK (CCMP)" or "mixed WPA2/WPA3 PSK/SAE (CCMP)".
+function encryption_of(text) {
+	text = lc(text ?? '');
+	if (text == '' || text == 'none' || text == 'unknown')
+		return 'none';
+	if (index(text, 'wep') >= 0)
+		return 'wep';
+	if (index(text, '802.1x') >= 0 || index(text, 'eap') >= 0)
+		return 'eap';
+	let sae = index(text, 'sae') >= 0, psk = index(text, 'psk') >= 0;
+	if (sae && psk)
+		return 'sae-mixed';
+	if (sae)
+		return 'sae';
+	if (index(text, 'wpa/wpa2') >= 0)
+		return 'psk-mixed';
+	if (index(text, 'wpa2') >= 0)
+		return 'psk2';
+	return 'psk';
+}
+
+function quality_pct(q) {
+	let m = match(q ?? '', /^(\d+)\/(\d+)$/);
+	return m ? int(+m[1] * 100 / +m[2]) : null;
+}
+
+function iwinfo_info(ifname) {
+	let info = {};
+	let p = popen(`iwinfo ${ifname} info 2>/dev/null`, 'r');
+	if (!p)
+		return info;
+	for (let line = p.read('line'); length(line); line = p.read('line')) {
+		let m;
+		if ((m = match(line, /ESSID: "(.*)"/)))
+			info.ssid = m[1];
+		if ((m = match(line, /Access Point: ([0-9A-F:]{17})/)))
+			info.bssid = m[1];
+		if ((m = match(line, /Channel: (\d+)/)))
+			info.channel = +m[1];
+		if ((m = match(line, /Signal: (-?\d+) dBm/)))
+			info.signal = +m[1];
+		if ((m = match(line, /Link Quality: (\d+\/\d+)/)))
+			info.quality = quality_pct(m[1]);
+		if ((m = match(line, /Encryption: (.*)$/)))
+			info.encryption = encryption_of(trim(m[1]));
+	}
+	p.close();
+	return info;
+}
+
+function wifi_ifaces() {
+	let res = {};
+	for (let radio, r in wireless_status() ?? {})
+		for (let i in r.interfaces ?? [])
+			res[i.section] = i.ifname;
+	return res;
+}
+
+function yun_version() {
+	let v = {};
+	for (let line in split(readfile('/etc/yun_release') ?? '', '\n')) {
+		let m = match(line, /^([A-Z_]+)='?([^']*)'?$/);
+		if (m) v[m[1]] = m[2];
+	}
+	return v;
+}
+
+function openwrt_release() {
+	let v = {};
+	for (let line in split(readfile('/etc/openwrt_release') ?? '', '\n')) {
+		let m = match(line, /^([A-Z_]+)='?([^']*)'?$/);
+		if (m) v[m[1]] = m[2];
+	}
+	return v;
+}
+
+function meminfo() {
+	let m = {};
+	for (let line in split(readfile('/proc/meminfo') ?? '', '\n')) {
+		let kv = match(line, /^(\w+):\s+(\d+) kB/);
+		if (kv) m[kv[1]] = +kv[2] * 1024;
+	}
+	return { total: m.MemTotal, free: m.MemFree, available: m.MemAvailable ?? m.MemFree };
+}
+
+function storage() {
+	let res = [];
+	let p = popen('df -k /overlay /mnt/* 2>/dev/null', 'r');
+	if (!p)
+		return res;
+	let seen = {};
+	p.read('line');   // header
+	for (let line = p.read('line'); length(line); line = p.read('line')) {
+		let f = split(trim(line), /\s+/);
+		if (length(f) < 6 || seen[f[0]])
+			continue;
+		seen[f[0]] = true;
+		let mount = f[5];
+		let name = mount == '/overlay' ? 'Internal flash' :
+			(index(f[0], '/dev/sd') == 0 || index(f[0], '/dev/mmc') == 0) ? `SD card (${mount})` : mount;
+		push(res, { name, mount, total: +f[1] * 1024, used: +f[2] * 1024 });
+	}
+	p.close();
+	return res;
+}
+
+function bridge_running() {
+	for (let d in glob('/proc/[0-9]*/cmdline')) {
+		let c = readfile(d);
+		if (c && index(c, '/usr/lib/yun-bridge/bridge.py') >= 0)
+			return true;
+	}
+	return false;
+}
+
+// Newlines and NULs would break the config files and tools these go to.
+function bad_chars(s) {
+	return index(s, '\n') >= 0 || index(s, '\r') >= 0 || index(s, '\u0000') >= 0;
+}
+
+function root_password_set() {
+	for (let line in split(readfile('/etc/shadow') ?? '', '\n')) {
+		let f = split(line, ':');
+		if (f[0] == 'root')
+			return !(f[1] in [ '', '!', '*', 'x' ]);
+	}
+	return false;
+}
+
+const methods = {
+	status: {
+		call: function() {
+			let uci = cursor();
+			let loadavg = split(readfile('/proc/loadavg') ?? '', ' ');
+			let rel = openwrt_release();
+			let yun = yun_version();
+			let state = uci.get('arduino', '@arduino[0]', 'wifi_state') ?? 'ap';
+			let ifaces = wifi_ifaces();
+
+			// Wi-Fi: whichever of the two roles is active.
+			let client = state == 'client';
+			let wifname = client ? ifaces.yun_sta : ifaces.yun_ap;
+			let wst = netifd_status(client ? 'wwan' : 'lan');
+			let info = wifname ? iwinfo_info(wifname) : {};
+			let wifi = {
+				mode: state,
+				ifname: wifname,
+				ssid: info.ssid ?? uci.get('wireless', client ? 'yun_sta' : 'yun_ap', 'ssid'),
+				ap_ssid: uci.get('wireless', 'yun_ap', 'ssid'),
+				connected: client ? (info.bssid != null && info.bssid != '00:00:00:00:00:00') : true,
+				signal: client ? info.signal : null,
+				quality: client ? info.quality : null,
+				channel: info.channel,
+				encryption: info.encryption,
+				ipv4: ipv4_of(wst),
+				...netdev(wifname),
+			};
+			if (!client && wifname) {
+				let r = run(`iwinfo ${wifname} assoclist | grep -c dBm`);
+				wifi.clients = +trim(r.output) || 0;
+			}
+			delete wifi.carrier;
+
+			let est = netifd_status('wan');
+			let ethernet = {
+				ipv4: ipv4_of(est),
+				gateway: gateway_of(est),
+				...netdev(est?.l3_device ?? est?.device ?? 'eth0'),
+			};
+
+			let result = {
+				hostname: uci.get('system', '@system[0]', 'hostname'),
+				zonename: uci.get('system', '@system[0]', 'zonename') ?? 'UTC',
+				model: trim_read('/tmp/sysinfo/model') ?? 'Arduino Yún',
+				time: time(),
+				uptime: int(+split(readfile('/proc/uptime') ?? '0', ' ')[0]),
+				load: [ +loadavg[0], +loadavg[1], +loadavg[2] ],
+				memory: meminfo(),
+				storage: storage(),
+				firmware: {
+					version: yun.VERSION ? `Yún ${yun.VERSION}` : null,
+					openwrt: rel.DISTRIB_DESCRIPTION,
+					kernel: trim_read('/proc/sys/kernel/osrelease'),
+					description: rel.DISTRIB_DESCRIPTION,
+				},
+				bridge: { running: bridge_running() },
+				rest_secure: uci.get('arduino', '@arduino[0]', 'secure_rest_api') != 'false',
+				password_set: root_password_set(),
+				wifi,
+				ethernet,
+			};
+			uci.unload();
+			return result;
+		}
+	},
+
+	wifi_scan: {
+		call: function() {
+			let ifaces = wifi_ifaces();
+			let dev = ifaces.yun_sta ?? ifaces.yun_ap;
+			if (!dev)
+				return { error: 'Wi-Fi is not running' };
+
+			let results = [], cur = null;
+			let p = popen(`iwinfo ${dev} scan 2>/dev/null`, 'r');
+			for (let line = p?.read('line'); length(line); line = p.read('line')) {
+				let m;
+				if (match(line, /^Cell /)) {
+					if (cur) push(results, cur);
+					cur = { bssid: match(line, /Address: ([0-9A-F:]{17})/)?.[1] };
+				}
+				else if (!cur)
+					continue;
+				else if ((m = match(line, /ESSID: "(.*)"/)))
+					cur.ssid = m[1];
+				else if ((m = match(line, /Channel: (\d+)/)))
+					cur.channel = +m[1];
+				if (cur && (m = match(line, /Signal: (-?\d+) dBm\s+Quality: (\d+\/\d+)/))) {
+					cur.signal = +m[1];
+					cur.quality = quality_pct(m[2]);
+				}
+				if (cur && (m = match(line, /Encryption: (.*)$/)))
+					cur.encryption = encryption_of(trim(m[1]));
+			}
+			if (cur) push(results, cur);
+			p?.close();
+			return { results: filter(results, r => r.ssid != null && r.ssid != '' && r.encryption != 'eap') };
+		}
+	},
+
+	wifi_client: {
+		args: { ssid: '', encryption: '', key: '' },
+		call: function(req) {
+			let ssid = req.args.ssid, enc = req.args.encryption, key = req.args.key ?? '';
+			if (type(ssid) != 'string' || length(ssid) < 1 || length(ssid) > 32)
+				return { error: 'The network name must be 1 to 32 characters' };
+			if (!(enc in ENCRYPTIONS))
+				return { error: 'Unsupported security type' };
+			if (enc != 'none' && (length(key) < 8 || length(key) > 63))
+				return { error: 'The password must be 8 to 63 characters' };
+			if (bad_chars(ssid + key))
+				return { error: 'Invalid characters' };
+			// Reply first: switching networks drops this connection.
+			spawn_later(2, 'exec yun-wifi client "$1" "$2" "$3"', [ ssid, enc, key ]);
+			return { ok: true };
+		}
+	},
+
+	wifi_setup_ap: {
+		call: function() {
+			spawn_later(2, 'exec yun-wifi ap');
+			return { ok: true };
+		}
+	},
+
+	sketch_flash: {
+		call: function() {
+			let st = stat(SKETCH);
+			if (!st || st.size == 0)
+				return { error: 'No sketch uploaded' };
+			if (st.size > 256 * 1024)
+				return { error: 'That file is too big for an ATmega32U4 sketch' };
+			let merge = run(`merge-sketch-with-bootloader.lua ${SKETCH}`);
+			if (merge.code != 0) {
+				unlink(SKETCH);
+				return { code: merge.code, output: merge.output };
+			}
+			run('kill-bridge');
+			let r = run(`run-avrdude ${SKETCH} -q -q`);
+			unlink(SKETCH);
+			return { code: r.code, output: r.output };
+		}
+	},
+
+	mcu_reset: {
+		call: function() {
+			let r = run('reset-mcu');
+			return r.code == 0 ? { ok: true } : { error: r.output };
+		}
+	},
+
+	bridge_data: {
+		call: function() {
+			let values = bridge.get_all();
+			return { running: values != null, values: values ?? {} };
+		}
+	},
+
+	bridge_put: {
+		args: { key: '', value: '' },
+		call: function(req) {
+			if (type(req.args.key) != 'string' || req.args.key == '')
+				return { error: 'A key is required' };
+			return bridge.put(req.args.key, '' + (req.args.value ?? ''))
+				? { ok: true } : { error: 'The bridge is not running' };
+		}
+	},
+
+	bridge_delete: {
+		args: { key: '' },
+		call: function(req) {
+			return bridge.del('' + req.args.key) ? { ok: true } : { error: 'The bridge is not running' };
+		}
+	},
+
+	mailbox_send: {
+		args: { message: '' },
+		call: function(req) {
+			return bridge.mailbox('' + req.args.message) ? { ok: true } : { error: 'The bridge is not running' };
+		}
+	},
+
+	settings_set: {
+		args: { hostname: '', zonename: '', rest_secure: false },
+		call: function(req) {
+			let a = req.args, uci = cursor();
+			if (a.hostname != null) {
+				if (!match(a.hostname, /^[A-Za-z0-9][A-Za-z0-9-]{0,62}$/))
+					return { error: 'Use letters, digits and dashes for the name' };
+				uci.set('system', '@system[0]', 'hostname', a.hostname);
+			}
+			if (a.zonename != null && a.zonename != '') {
+				if (!ZONES[a.zonename])
+					return { error: 'Unknown time zone' };
+				uci.set('system', '@system[0]', 'zonename', a.zonename);
+				uci.set('system', '@system[0]', 'timezone', ZONES[a.zonename]);
+			}
+			if (a.rest_secure != null)
+				uci.set('arduino', '@arduino[0]', 'secure_rest_api', a.rest_secure ? 'true' : 'false');
+			uci.save('system');
+			uci.save('arduino');
+			uci.commit('system');
+			uci.commit('arduino');
+			uci.unload();
+			// Apply the name and time zone, and re-announce over mDNS.
+			spawn_later(1, '/etc/init.d/system reload; /etc/init.d/umdns reload');
+			return { ok: true };
+		}
+	},
+
+	password_set: {
+		args: { password: '' },
+		call: function(req) {
+			let pw = req.args.password;
+			if (type(pw) != 'string' || length(pw) < 8 || length(pw) > 128 || bad_chars(pw))
+				return { error: 'Use 8 to 128 characters' };
+			let p = popen('passwd root >/dev/null 2>&1', 'w');
+			if (!p)
+				return { error: 'passwd failed' };
+			p.write(pw + '\n' + pw + '\n');
+			return p.close() == 0 ? { ok: true } : { error: 'passwd failed' };
+		}
+	},
+
+	update_check: {
+		call: function() {
+			if (!access('/usr/bin/yun-update', 'x'))
+				return { error: 'yun-update is not installed' };
+			let r = run('yun-update check --json');
+			let res = json(r.output);
+			return type(res) == 'object' ? res : { error: trim(r.output) || 'update check failed' };
+		}
+	},
+
+	update_apply: {
+		call: function() {
+			if (!access('/usr/bin/yun-update', 'x'))
+				return { error: 'yun-update is not installed' };
+			spawn_later(1, 'exec yun-update apply');
+			return { ok: true };
+		}
+	},
+};
+
+return { yun: methods };

@@ -1,0 +1,4 @@
+#!/bin/sh
+echo "run-avrdude $*" >> "$CALL_LOG"
+echo "avrdude: 28672 bytes of flash verified"
+exit ${AVRDUDE_EXIT:-0}
