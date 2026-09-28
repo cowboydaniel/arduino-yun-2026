@@ -42,9 +42,22 @@ if [ $applied = 0 ]; then
 	done
 fi
 
-cp feeds.conf.default feeds.conf
+# Only the packages feed is needed (Python 3, avrdude, libgpiod, curl), at
+# the commit this OpenWrt release pins, from GitHub's mirror: the other
+# feeds and git.openwrt.org have failed to download on GitHub's runners and
+# stopped the whole build.
+sed -n 's,^src-git packages https://git.openwrt.org/feed/packages.git,src-git packages https://github.com/openwrt/packages.git,p' \
+	feeds.conf.default > feeds.conf
+grep -q '^src-git packages ' feeds.conf || { echo "no packages feed in feeds.conf.default" >&2; exit 1; }
 echo "src-link arduino $REPO_DIR/feed" >> feeds.conf
-./scripts/feeds update -a
+for try in 1 2 3; do
+	./scripts/feeds update -a && break
+	[ $try = 3 ] && exit 1
+	echo "feeds update failed, trying again in 30 s" >&2
+	sleep 30
+done
+# Drop packages left over from feeds this script no longer uses.
+./scripts/feeds uninstall -a >/dev/null
 
 # Patches for packages from OpenWrt's feeds, laid out like feeds/:
 # openwrt/feed-patches/<feed>/<path to package>/*.patch
@@ -70,3 +83,19 @@ ls -l bin/targets/ath79/generic/*arduino_yun-2026*
 
 echo
 python3 "$REPO_DIR/tools/check-image.py" bin/targets/ath79/generic/*arduino_yun-2026*linino-upgrade.bin
+
+# The kernel must match OpenWrt's official build (see openwrt/config.seed),
+# or no kmod-* from downloads.openwrt.org installs on the Yun.
+echo
+ours=$(cat build_dir/target-*/linux-ath79_generic/linux-*/.vermagic)
+official=$(curl -fsS -m 60 "https://downloads.openwrt.org/releases/${OPENWRT_VERSION#v}/targets/ath79/generic/packages/index.json" |
+	python3 -c 'import json, sys; print(json.load(sys.stdin)["packages"]["kernel"].split("~")[1].split("-")[0])' 2>/dev/null)
+if [ -z "$official" ]; then
+	echo "Couldn't get the official kernel's version from downloads.openwrt.org; not checked."
+elif [ "$ours" = "$official" ]; then
+	echo "Kernel matches the official build ($ours): official kmods install."
+else
+	echo "The kernel ($ours) doesn't match the official build ($official):" >&2
+	echo "kmods from downloads.openwrt.org won't install. See openwrt/config.seed." >&2
+	[ "${YUN_ALLOW_KERNEL_MISMATCH:-0}" = 1 ] || exit 1
+fi

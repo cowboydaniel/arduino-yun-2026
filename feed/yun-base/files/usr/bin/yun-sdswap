@@ -1,0 +1,114 @@
+#!/bin/sh
+# Swap to a file on the SD card, which gives a 64 MB Yun room for programs
+# that don't fit in RAM.
+#
+#   yun-sdswap wait     at boot: use a card that turns up within two minutes
+#                       of the end of boot (some cards take most of a minute)
+#   yun-sdswap start    use the card in the Yun now, if there is one
+#   yun-sdswap stop     stop swapping to the card: do this before taking it out
+#   yun-sdswap status
+#
+# The file is yun-swapfile (256 MB) at the top of the card's first
+# partition, made the first time and reused after that. The card must have
+# a FAT, exFAT or ext4 filesystem and 320 MB free. It's used after the
+# compressed swap in RAM (zram). Turn it off with
+#   uci set arduino.@arduino[0].sd_swap=0; uci commit arduino
+# and change the size with arduino.@arduino[0].sd_swap_size (in MB).
+
+PROC=${PROC:-/proc}
+NAME=yun-swapfile
+PRIORITY=10         # zram-swap uses 100, so RAM is used first
+WAIT=${YUN_SDSWAP_WAIT:-120}   # seconds to wait for a card, from the end of boot
+
+say() {
+	echo "yun-sdswap: $*"
+	logger -t yun-sdswap "$*" 2>/dev/null
+}
+
+setting() {
+	uci -q get arduino.@arduino[0].$1
+}
+
+size_mb() {
+	local s=$(setting sd_swap_size)
+	case "$s" in
+	''|*[!0-9]*|0) echo 256 ;;
+	*) echo "$s" ;;
+	esac
+}
+
+# The mount point of the first writable card partition.
+card() {
+	awk '$1 ~ /^\/dev\/(sd[a-z][0-9]*|mmcblk[0-9]+(p[0-9]+)?)$/ &&
+		$3 ~ /^(vfat|exfat|ext[234])$/ && $4 ~ /^rw(,|$)/ { print $2; exit }' $PROC/mounts
+}
+
+# The swap file in use, if any.
+active() {
+	awk -v n="/$NAME" 'NR > 1 && substr($1, length($1) - length(n) + 1) == n { print $1; exit }' $PROC/swaps
+}
+
+# 0: swapping to the card; 1: there's a card but it can't be used; 2: no card.
+start() {
+	[ "$(setting sd_swap)" = 0 ] && { say "turned off (arduino.@arduino[0].sd_swap)"; return 1; }
+	[ -n "$(active)" ] && return 0
+	local mp=$(card)
+	[ -n "$mp" ] || return 2
+	local f="$mp/$NAME" size=$(size_mb)
+	if [ "$(wc -c < "$f" 2>/dev/null)" != $((size * 1048576)) ]; then
+		rm -f "$f" "$f.new"
+		local free_kb=$(df -Pk "$mp" | awk 'NR == 2 { print $4 }')
+		if [ "${free_kb:-0}" -lt $(((size + 64) * 1024)) ]; then
+			say "not enough space on the SD card for a ${size} MB swap file ($((${free_kb:-0} / 1024)) MB free)"
+			return 1
+		fi
+		say "making a ${size} MB swap file on the SD card (takes a minute)"
+		if ! dd if=/dev/zero of="$f.new" bs=1048576 count=$size 2>/dev/null || ! mv "$f.new" "$f"; then
+			rm -f "$f.new"
+			say "couldn't write the swap file to the SD card"
+			return 1
+		fi
+		sync
+	fi
+	chmod 600 "$f"
+	if ! mkswap "$f" >/dev/null 2>&1 || ! swapon -p $PRIORITY "$f" 2>/dev/null; then
+		say "couldn't swap to $f"
+		return 1
+	fi
+	say "swapping to $f (${size} MB)"
+}
+
+case "$1" in
+wait)
+	waited=0
+	while :; do
+		start
+		[ $? = 2 ] || exit 0
+		[ $waited -ge $WAIT ] && exit 0
+		sleep 5
+		waited=$((waited + 5))
+	done
+	;;
+start)
+	start
+	case $? in
+	0) exit 0 ;;
+	2) say "no SD card found"; exit 1 ;;
+	*) exit 1 ;;
+	esac
+	;;
+stop)
+	f=$(active)
+	[ -n "$f" ] || exit 0
+	swapoff "$f" || { say "couldn't stop swapping to $f (not enough free RAM?)"; exit 1; }
+	say "stopped swapping to $f; the card can be taken out"
+	;;
+status)
+	f=$(active)
+	if [ -n "$f" ]; then echo "swapping to $f"; else echo "not swapping to an SD card"; fi
+	;;
+*)
+	sed -n '2,/^$/s/^# \{0,1\}//p' "$0" >&2
+	exit 2
+	;;
+esac

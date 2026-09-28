@@ -7,17 +7,23 @@
 # ATmega32U4 types "run-bridge" into the login shell on ttyATH0, which starts
 # this program with the serial port as stdin and stdout.
 
-import argparse
-import logging
-import logging.handlers
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import bridgelog  # noqa: E402
 import packet  # noqa: E402
 
-log = logging.getLogger('bridge')
+log = bridgelog.getLogger()
+
+USAGE = '''usage: bridge.py [--debug] [--mailbox-port PORT] [--console-port PORT]
+
+The Linux side of the Arduino Bridge library.
+
+  --debug               log every command
+  --mailbox-port PORT   (default 5700)
+  --console-port PORT   (default 6571)'''
 
 
 class CommandProcessor:
@@ -80,25 +86,38 @@ def build_processor(mailbox_port=5700, console_port=6571):
 
 
 def setup_logging(debug):
-    level = logging.DEBUG if debug else logging.INFO
-    handlers = [logging.StreamHandler(sys.stderr)]
-    if os.path.exists('/dev/log'):
-        syslog = logging.handlers.SysLogHandler(address='/dev/log')
-        syslog.setFormatter(logging.Formatter('bridge: %(message)s'))
-        handlers.append(syslog)
-    logging.basicConfig(level=level, handlers=handlers,
-                        format='%(asctime)s %(levelname)s %(message)s')
+    bridgelog.setup(debug)
+
+
+def parse_args(argv):
+    """(debug, mailbox_port, console_port), or exit with the usage."""
+    debug, ports = False, {'--mailbox-port': 5700, '--console-port': 6571}
+    argv = list(argv)
+    while argv:
+        a = argv.pop(0)
+        name, _, value = a.partition('=')
+        if a == '--debug':
+            debug = True
+        elif a in ('-h', '--help'):
+            print(USAGE)
+            sys.exit(0)
+        elif name in ports:
+            if not value:
+                value = argv.pop(0) if argv else ''
+            try:
+                ports[name] = int(value)
+            except ValueError:
+                sys.exit('%s\nbridge.py: %s needs a port number' % (USAGE, name))
+        else:
+            sys.exit('%s\nbridge.py: unknown argument %s' % (USAGE, a))
+    return debug, ports['--mailbox-port'], ports['--console-port']
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description='Arduino Yun bridge')
-    ap.add_argument('--debug', action='store_true', help='log every command')
-    ap.add_argument('--mailbox-port', type=int, default=5700)
-    ap.add_argument('--console-port', type=int, default=6571)
-    args = ap.parse_args(argv)
+    debug, mailbox_port, console_port = parse_args(sys.argv[1:] if argv is None else argv)
 
-    setup_logging(args.debug)
-    cp = build_processor(args.mailbox_port, args.console_port)
+    setup_logging(debug)
+    cp = build_processor(mailbox_port, console_port)
     reader = packet.PacketReader(cp)
     log.info('bridge started')
     with packet.raw_tty(0):

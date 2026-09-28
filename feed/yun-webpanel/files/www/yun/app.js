@@ -127,6 +127,13 @@
   const ENCRYPTION = {
     none: 'Open', psk: 'WPA', psk2: 'WPA2', 'psk-mixed': 'WPA/WPA2',
     sae: 'WPA3', 'sae-mixed': 'WPA2/WPA3', owe: 'OWE',
+    wpa2: 'WPA2 Enterprise', 'wpa3-mixed': 'WPA2/WPA3 Enterprise', wpa3: 'WPA3 Enterprise',
+  };
+  const ENTERPRISE = ['wpa2', 'wpa3-mixed', 'wpa3'];
+  // Inner authentication for each EAP method (yun.uc's EAP_METHODS).
+  const PHASE2 = {
+    peap: [['MSCHAPV2', 'MSCHAPv2']],
+    ttls: [['PAP', 'PAP'], ['MSCHAPV2', 'MSCHAPv2'], ['MSCHAP', 'MSCHAP'], ['CHAP', 'CHAP'], ['EAP-MSCHAPV2', 'EAP-MSCHAPv2']],
   };
 
   // --- State ---------------------------------------------------------------
@@ -147,11 +154,21 @@
     $$('.view').forEach((v) => (v.hidden = v.dataset.view !== name));
     $$('.nav-link').forEach((a) => a.classList.toggle('active', a.dataset.view === name));
     clearInterval(dataTimer);
+    clearInterval(usbTimer);
+    if (name === 'overview') {
+      refreshUsb();
+      usbTimer = setInterval(refreshUsb, 5000);
+    }
     if (name === 'bridge') {
       refreshData();
       dataTimer = setInterval(refreshData, 2000);
     }
     if (name === 'network' && !$('#scan-list').children.length) scan();
+    if (name === 'network') {
+      refreshVpn();
+      dataTimer = setInterval(refreshVpn, 5000);
+    }
+    if (name === 'terminal') $('#term-input').focus({ preventScroll: true });
   }
 
   function renderStatus(s) {
@@ -195,6 +212,10 @@
       ['Received', w.rx_bytes != null && bytes(w.rx_bytes)], ['Sent', w.tx_bytes != null && bytes(w.tx_bytes)],
     ]);
     $('#ap-ssid').textContent = w.ap_ssid || 'Arduino Yun';
+    $('#direct-ssid').textContent = w.ap_ssid || 'Arduino Yun';
+    setBadge($('#direct-badge'), w.direct ? 'On' : 'Off', w.direct ? 'ok' : '');
+    $('#direct-off').hidden = !w.direct;
+    $('#direct-on').textContent = w.direct ? 'Change password' : 'Turn on';
 
     // Ethernet
     const e = s.ethernet || {};
@@ -218,6 +239,8 @@
       if (memHistory.length > 60) memHistory.shift();
       drawSpark($('#mem-spark'), memHistory);
     }
+    $('#mem-swap').hidden = !m.swap_total;
+    if (m.swap_total) $('#mem-swap').textContent = `Swap: ${bytes(m.swap_total - m.swap_free)} used of ${bytes(m.swap_total)}`;
 
     // Storage
     $('#storage-list').replaceChildren(...(s.storage || []).map((d) => {
@@ -294,6 +317,7 @@
   }
 
   async function poll() {
+    if (updating) return;
     try {
       pollSentAt = Date.now();
       renderStatus(await api.call('yun', 'status'));
@@ -339,26 +363,51 @@
     $('#join-form').hidden = false;
     $('#join-title').textContent = `Join ${r.ssid}`;
     $('#join-ssid').value = r.ssid;
-    const enc = r.encryption === 'none' ? 'none' : (r.encryption?.startsWith('sae') ? 'sae-mixed' : 'psk2');
+    const enc = r.encryption === 'none' ? 'none'
+      : ENTERPRISE.includes(r.encryption) ? r.encryption
+        : (r.encryption?.startsWith('sae') ? 'sae-mixed' : 'psk2');
     $('#join-enc').value = enc;
     updateKeyField();
-    (enc === 'none' ? $('#join-ssid') : $('#join-key')).focus();
+    (enc === 'none' ? $('#join-ssid') : ENTERPRISE.includes(enc) ? $('#join-identity') : $('#join-key')).focus();
   }
 
   function updateKeyField() {
-    const open = $('#join-enc').value === 'none';
-    $('#join-key-field').hidden = open;
-    $('#join-key').required = !open;
+    const enc = $('#join-enc').value;
+    const open = enc === 'none', eap = ENTERPRISE.includes(enc);
+    $('#join-key-field').hidden = open || eap;
+    $('#join-key').required = !open && !eap;
+    $('#join-eap').hidden = !eap;
+    $('#join-identity').required = eap;
+    $('#join-password').required = eap;
+    updatePhase2();
+  }
+
+  function updatePhase2() {
+    const sel = $('#join-phase2'), keep = sel.value;
+    const options = PHASE2[$('#join-eap-type').value] || [];
+    sel.replaceChildren(...options.map(([v, label]) => el('option', { value: v }, label)));
+    if (options.some(([v]) => v === keep)) sel.value = keep;
+    sel.disabled = options.length < 2;
   }
 
   async function join(ev) {
     ev.preventDefault();
     const ssid = $('#join-ssid').value.trim();
     const encryption = $('#join-enc').value;
-    const key = $('#join-key').value;
+    const args = { ssid, encryption };
+    if (ENTERPRISE.includes(encryption)) {
+      Object.assign(args, {
+        eap: $('#join-eap-type').value, phase2: $('#join-phase2').value,
+        identity: $('#join-identity').value.trim(), password: $('#join-password').value,
+        anonymous_identity: $('#join-anon').value.trim(), domain: $('#join-domain').value.trim(),
+      });
+      if (!args.domain && !confirm("Join without checking the network's login server? Anyone running a fake network with this name could collect your password.")) return;
+    } else {
+      args.key = $('#join-key').value;
+    }
     if (!confirm(`Join "${ssid}"? The Yún will leave its current network. Find it again as ${status?.hostname || 'Arduino'}.local once it has joined.`)) return;
     try {
-      await api.call('yun', 'wifi_client', { ssid, encryption, key });
+      await api.call('yun', 'wifi_client', args);
       toast(`Joining ${ssid}…`);
       $('#join-form').hidden = true;
     } catch (err) {
@@ -426,6 +475,193 @@
     }
   }
 
+  // --- USB devices -------------------------------------------------------
+
+  let usbTimer = null;
+  let usbInstalling = false;
+
+  function usbSpeed(mbit) {
+    return { 1.5: 'USB 1.0', 12: 'USB 1.1', 480: 'USB 2.0' }[mbit] || (mbit ? `${mbit} Mbit/s` : '');
+  }
+
+  async function refreshUsb() {
+    let devices;
+    try {
+      ({ devices = [] } = await api.call('yun', 'usb_devices'));
+    } catch (err) {
+      if (err.code === 'auth') signedOut();
+      return;
+    }
+    const list = $('#usb-list');
+    const external = devices.filter((d) => !d.builtin);
+    if (!external.length) {
+      list.replaceChildren(el('li', { class: 'muted' },
+        'Nothing plugged in. Serial adapters and Arduinos, webcams, sound cards, Bluetooth, Ethernet and Wi-Fi dongles (including 5 GHz ones) can all work here.'));
+      return;
+    }
+    list.replaceChildren(...external.map((d) => {
+      let state;
+      if (!d.needs_driver) {
+        state = el('span', { class: 'badge is-ok' }, 'Working');
+      } else if (d.packages.length) {
+        state = el('button', {
+          class: 'btn btn-primary', type: 'button', disabled: usbInstalling,
+          onclick: () => installUsbDriver(d, d.packages[0]),
+        }, 'Install driver');
+      } else {
+        state = el('span', { class: 'badge is-warn', title: 'No driver for this device is known to the panel. Try the Terminal: apk search' }, 'No driver known');
+      }
+      return el('li', {},
+        el('div', { class: 'usb-main' },
+          el('strong', {}, d.name),
+          el('span', { class: 'muted small' },
+            [d.manufacturer, d.types.join(', '), usbSpeed(d.speed), d.id].filter(Boolean).join(' · ')),
+          d.needs_driver && d.packages.length
+            ? el('span', { class: 'muted small' }, 'Needs ', el('code', {}, d.packages[0]))
+            : d.drivers.length ? el('span', { class: 'muted small' }, 'Driver: ', el('code', {}, d.drivers.join(', '))) : null),
+        state);
+    }));
+  }
+
+  async function installUsbDriver(device, pkg) {
+    if (!confirm(`Install ${pkg} for ${device.name}? It downloads from downloads.openwrt.org, so the Yún needs to be online, and uses a little of its flash.`)) return;
+    usbInstalling = true;
+    refreshUsb();
+    const wrap = $('#usb-log-wrap'), out = $('#usb-log');
+    try {
+      const { id } = await api.call('yun', 'usb_install', { package: pkg });
+      const ok = await followJob(id, wrap, $('#usb-log-title'), out, `Installing ${pkg}`);
+      toast(ok ? `${pkg} installed` : `Couldn't install ${pkg}: see the details`, !ok);
+    } catch (err) {
+      if (err.code === 'auth') return signedOut();
+      $('#usb-log-title').textContent = `Couldn't install ${pkg}`;
+      out.textContent += err.message + '\n';
+    } finally {
+      usbInstalling = false;
+      refreshUsb();
+    }
+  }
+
+  // --- VPN (WireGuard) ---------------------------------------------------
+
+  let vpn = null;
+  let vpnEditing = false;    // replacing the config of a VPN that's set up
+
+  function ago(seconds) {
+    if (seconds < 90) return `${Math.max(0, Math.round(seconds))} s ago`;
+    if (seconds < 5400) return `${Math.round(seconds / 60)} min ago`;
+    return `${Math.round(seconds / 3600)} h ago`;
+  }
+
+  async function refreshVpn() {
+    try {
+      vpn = await api.call('yun', 'vpn_status');
+    } catch (err) {
+      if (err.code === 'auth') signedOut();
+      return;
+    }
+    $('#vpn-install').hidden = vpn.installed;
+    $('#vpn-form').hidden = !vpn.installed || (vpn.configured && !vpnEditing);
+    $('#vpn-cancel').hidden = !vpn.configured;
+    $('#vpn-status').hidden = !vpn.configured || !$('#vpn-form').hidden;
+    if (vpn.configured) $('#vpn-log-wrap').hidden = true;
+    const badge = $('#vpn-badge');
+    if (!vpn.configured) {
+      badge.hidden = true;
+      return;
+    }
+    const now = Date.now() / 1000;
+    const recent = vpn.handshake && now - vpn.handshake < 180;
+    if (!vpn.enabled) setBadge(badge, 'Off', '');
+    else if (recent) setBadge(badge, 'Connected', 'ok');
+    else setBadge(badge, vpn.installed ? 'Waiting for the server' : 'WireGuard not installed', 'warn');
+    $('#vpn-toggle').textContent = vpn.enabled ? 'Turn off' : 'Turn on';
+    setKV($('#vpn-kv'), [
+      ['Server', vpn.server],
+      ['The Yún on the VPN', (vpn.addresses || []).join(', ')],
+      ['Reaches', (vpn.allowed_ips || []).join(', ')],
+      ['Last contact', vpn.handshake ? ago(now - vpn.handshake) : (vpn.enabled ? 'not yet' : null)],
+      ['Received', vpn.rx_bytes != null && bytes(vpn.rx_bytes)],
+      ['Sent', vpn.tx_bytes != null && bytes(vpn.tx_bytes)],
+      ['Its public key', vpn.public_key],
+    ]);
+  }
+
+  // Run an install job and show its output; resolves to true on success.
+  async function followJob(id, wrap, title, out, label) {
+    wrap.hidden = false;
+    wrap.open = true;
+    title.textContent = `${label}…`;
+    out.textContent = '';
+    const decoder = new TextDecoder();
+    let offset = 0, r;
+    do {
+      await new Promise((res) => setTimeout(res, 500));
+      r = await api.call('yun', 'shell_poll', { id, offset });
+      offset = r.offset;
+      out.textContent += decoder.decode(base64Bytes(r.output || ''), { stream: !r.done });
+      out.scrollTop = out.scrollHeight;
+    } while (!r.done);
+    title.textContent = r.rc === 0 ? `${label}: done` : `${label}: failed`;
+    return r.rc === 0;
+  }
+
+  function setupVpn() {
+    $('#vpn-install-btn').addEventListener('click', async (ev) => {
+      ev.target.disabled = true;
+      try {
+        const { id } = await api.call('yun', 'vpn_install');
+        const ok = await followJob(id, $('#vpn-log-wrap'), $('#vpn-log-title'), $('#vpn-log'), 'Installing WireGuard');
+        toast(ok ? 'WireGuard installed' : "Couldn't install WireGuard: see the details", !ok);
+      } catch (err) {
+        toast(err.message, true);
+      } finally {
+        ev.target.disabled = false;
+        refreshVpn();
+      }
+    });
+    $('#vpn-file').addEventListener('change', async (ev) => {
+      const file = ev.target.files[0];
+      ev.target.value = '';
+      if (!file) return;
+      if (file.size > 8192) return toast("That's too big for a WireGuard config", true);
+      $('#vpn-config').value = await file.text();
+    });
+    $('#vpn-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      try {
+        await api.call('yun', 'vpn_import', { config: $('#vpn-config').value });
+        $('#vpn-config').value = '';
+        vpnEditing = false;
+        toast('Connecting to the VPN…');
+      } catch (err) {
+        toast(`Not connected: ${err.message}`, true);
+      }
+      refreshVpn();
+    });
+    $('#vpn-cancel').addEventListener('click', () => {
+      $('#vpn-config').value = '';
+      vpnEditing = false;
+      refreshVpn();
+    });
+    $('#vpn-replace').addEventListener('click', () => {
+      vpnEditing = true;
+      $('#vpn-form').hidden = false;
+      $('#vpn-status').hidden = true;
+      $('#vpn-cancel').hidden = false;
+      $('#vpn-config').focus();
+    });
+    $('#vpn-toggle').addEventListener('click', async () => {
+      await api.call('yun', 'vpn_set', { enabled: !vpn?.enabled }).catch((e) => toast(e.message, true));
+      setTimeout(refreshVpn, 1500);
+    });
+    $('#vpn-remove').addEventListener('click', async () => {
+      if (!confirm('Remove the VPN? The Yún disconnects from it and forgets its keys.')) return;
+      await api.call('yun', 'vpn_remove').catch((e) => toast(e.message, true));
+      refreshVpn();
+    });
+  }
+
   // --- Bridge data ---------------------------------------------------------
 
   async function refreshData() {
@@ -447,6 +683,194 @@
     } catch (err) {
       if (err.code === 'auth') signedOut();
     }
+  }
+
+  // --- Terminal ------------------------------------------------------------
+  //
+  // Each command runs on the board as a background job (yun.shell_start);
+  // its output is fetched in pieces (yun.shell_poll) as base64, since it can
+  // be any bytes, and decoded here as one UTF-8 stream.
+
+  const QUICK_COMMANDS = [
+    'free', 'df -h', 'uptime', 'ip -br addr', 'iwinfo', 'logread | tail -n 40',
+    'dmesg | tail -n 30', 'top -bn1 | head -n 20', 'ps w',
+  ];
+  const TERM_KEEP = 200000;   // characters of output kept on screen
+
+  const term = {
+    cwd: sessionStorage.getItem('yun-cwd') || '/root',
+    history: [],
+    pos: 0,          // position in history while pressing ↑/↓
+    draft: '',
+    job: null,       // { id, offset, decoder, pending }
+  };
+
+  function termAppend(text, cls) {
+    if (!text) return;
+    const out = $('#term-out');
+    const atBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 40;
+    if (cls) out.append(el('span', { class: cls }, text));
+    else if (out.lastChild?.nodeType === Node.TEXT_NODE) out.lastChild.appendData(text);
+    else out.append(document.createTextNode(text));
+    // Drop the oldest output once there's a lot of it.
+    let excess = out.textContent.length - TERM_KEEP;
+    while (excess > 0 && out.firstChild) {
+      const first = out.firstChild, len = first.textContent.length;
+      if (first.nodeType === Node.TEXT_NODE && len > excess) { first.deleteData(0, excess); break; }
+      first.remove();
+      excess -= len;
+    }
+    if (atBottom) out.scrollTop = out.scrollHeight;
+  }
+
+  // Colours and cursor movement from programs that think they're on a
+  // terminal; carriage returns from progress bars.
+  function termClean(text) {
+    return text
+      .replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, '')
+      .replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, '')
+      .replace(/\x1b[@-_]/g, '')
+      .replace(/\r+\n/g, '\n')
+      .replace(/[^\n]*\r/g, '');
+  }
+
+  function base64Bytes(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
+  function termSetCwd(cwd) {
+    if (!cwd) return;
+    term.cwd = cwd;
+    $('#term-cwd').textContent = cwd;
+    sessionStorage.setItem('yun-cwd', cwd);
+  }
+
+  function termBusy(busy) {
+    $('#term-stop').hidden = !busy;
+    $('#term-run').disabled = busy;
+  }
+
+  function termSaveHistory() {
+    try { localStorage.setItem('yun-term-history', JSON.stringify(term.history.slice(-100))); } catch (e) { /* not kept */ }
+  }
+
+  async function termRun(command) {
+    command = command.trim();
+    if (!command || term.job) return;
+    if (term.history[term.history.length - 1] !== command) {
+      term.history.push(command);
+      termSaveHistory();
+    }
+    term.pos = term.history.length;
+    term.draft = '';
+    termAppend(`${term.cwd} # ${command}\n`, 'term-cmd');
+    if (command === 'clear') {
+      $('#term-out').replaceChildren();
+      return;
+    }
+    termBusy(true);
+    try {
+      const { id } = await api.call('yun', 'shell_start', { command, cwd: term.cwd });
+      term.job = { id, offset: 0, decoder: new TextDecoder(), pending: '' };
+      termPoll();
+    } catch (err) {
+      if (err.code === 'auth') return signedOut();
+      termAppend(`${err.message}\n`, 'term-err');
+      termBusy(false);
+    }
+  }
+
+  async function termPoll() {
+    const job = term.job;
+    if (!job) return;
+    let r;
+    try {
+      r = await api.call('yun', 'shell_poll', { id: job.id, offset: job.offset });
+    } catch (err) {
+      if (err.code === 'auth') { term.job = null; termBusy(false); return signedOut(); }
+      if (err.message === 'No such command') {
+        term.job = null;
+        termBusy(false);
+        return termAppend('(lost track of this command)\n', 'term-err');
+      }
+      // The board didn't answer: try again shortly.
+      return setTimeout(termPoll, 2000);
+    }
+    const bytes = base64Bytes(r.output || '');
+    job.offset = r.offset;
+    // Show whole lines, so a \r\n or an escape sequence split between two
+    // pieces is cleaned up properly; a long line without an end goes anyway.
+    let text = job.pending + job.decoder.decode(bytes, { stream: !r.done });
+    job.pending = '';
+    if (!r.done) {
+      const cut = text.lastIndexOf('\n') + 1;
+      if (text.length - cut < 4096) { job.pending = text.slice(cut); text = text.slice(0, cut); }
+    }
+    termAppend(termClean(text));
+    if (!r.done) return setTimeout(termPoll, bytes.length ? 250 : 600);
+
+    term.job = null;
+    termBusy(false);
+    const out = $('#term-out');
+    if (out.textContent && !out.textContent.endsWith('\n')) termAppend('\n');
+    if (r.truncated) termAppend('(output stopped at 1 MB)\n', 'term-err');
+    if (r.rc == null) termAppend('(stopped)\n', 'term-err');
+    else if (r.rc !== 0) termAppend(`(exit code ${r.rc})\n`, 'term-err');
+    termSetCwd(r.cwd);
+    if (!$('.view[data-view="terminal"]').hidden) $('#term-input').focus({ preventScroll: true });
+  }
+
+  function setupTerminal() {
+    try { term.history = JSON.parse(localStorage.getItem('yun-term-history')) || []; } catch (e) { term.history = []; }
+    term.pos = term.history.length;
+    termSetCwd(term.cwd);
+    const input = $('#term-input');
+
+    $('#term-form').addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const command = input.value;
+      if (term.job) return;
+      input.value = '';
+      termRun(command);
+    });
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'ArrowUp' && term.pos > 0) {
+        if (term.pos === term.history.length) term.draft = input.value;
+        input.value = term.history[--term.pos];
+      } else if (ev.key === 'ArrowDown' && term.pos < term.history.length) {
+        term.pos++;
+        input.value = term.pos === term.history.length ? term.draft : term.history[term.pos];
+      } else if (ev.key === 'c' && ev.ctrlKey && term.job && !input.selectionEnd) {
+        $('#term-stop').click();
+      } else if (ev.key === 'l' && ev.ctrlKey) {
+        $('#term-out').replaceChildren();
+      } else {
+        return;
+      }
+      ev.preventDefault();
+      requestAnimationFrame(() => input.setSelectionRange(input.value.length, input.value.length));
+    });
+    $('#term-stop').addEventListener('click', async () => {
+      if (!term.job) return;
+      await api.call('yun', 'shell_stop', { id: term.job.id }).catch((e) => toast(e.message, true));
+    });
+    $('#term-clear').addEventListener('click', () => $('#term-out').replaceChildren());
+    const wrap = $('#term-wrap');
+    const setWrap = (on) => {
+      wrap.setAttribute('aria-pressed', String(on));
+      $('#term-out').classList.toggle('wrap', on);
+    };
+    try { setWrap(localStorage.getItem('yun-term-wrap') === '1'); } catch (e) { /* default: don't wrap */ }
+    wrap.addEventListener('click', () => {
+      const on = wrap.getAttribute('aria-pressed') !== 'true';
+      setWrap(on);
+      try { localStorage.setItem('yun-term-wrap', on ? '1' : '0'); } catch (e) { /* not kept */ }
+    });
+    $('#term-chips').replaceChildren(...QUICK_COMMANDS.map((c) =>
+      el('button', { type: 'button', class: 'chip', onclick: () => termRun(c) }, el('code', {}, c))));
   }
 
   // --- Settings ------------------------------------------------------------
@@ -531,7 +955,7 @@
       if (!confirm('Download and install the update? The Yún restarts when it is done, and keeps its settings.')) return;
       try {
         await api.call('yun', 'update_apply');
-        toast('Installing the update. The Yún will restart in a few minutes.');
+        watchUpdate();
       } catch (err) {
         toast(`Update failed: ${err.message}`, true);
       }
@@ -544,10 +968,109 @@
     });
   }
 
+  // --- Firmware update ---------------------------------------------------
+  //
+  // yun-update keeps the web panel running while it downloads, so this can
+  // show how far it has got. When sysupgrade takes over it stops the web
+  // server; from then on, wait for the board to answer again.
+
+  let updating = false;
+
+  async function watchUpdate() {
+    updating = true;
+    const from = status?.firmware?.version;
+    const box = $('#fw-progress'), step = $('#fw-step'), pct = $('#fw-pct'), bar = $('#fw-bar'), note = $('#fw-note');
+    $('#fw-apply').hidden = true;
+    $('#fw-check').disabled = true;
+    box.hidden = false;
+    bar.parentElement.className = 'meter';
+    const set = (label, p, text = '') => {
+      step.textContent = label;
+      pct.textContent = p == null ? '' : `${Math.round(p * 100)}%`;
+      bar.style.width = `${Math.round((p ?? 0) * 100)}%`;
+      note.textContent = text;
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    set('Starting…', 0.02, "Keep this page open. Don't unplug the Yún.");
+
+    // 1. Follow yun-update while the board answers.
+    let last = null, misses = 0;
+    for (;;) {
+      await sleep(1000);
+      let p;
+      try {
+        p = await api.call('yun', 'update_progress');
+        misses = 0;
+      } catch (err) {
+        if (++misses < 3) continue;
+        break;                  // the web server has stopped
+      }
+      last = p.stage;
+      if (p.stage === 'failed') {
+        bar.parentElement.className = 'meter bad';
+        set('The update failed', 1, `${p.message || ''} Nothing was installed; the Yún carries on as before.`);
+        $('#fw-check').disabled = false;
+        updating = false;
+        return;
+      }
+      if (p.stage === 'downloading' && p.total) {
+        const f = Math.min(1, p.downloaded / p.total);
+        set(`Downloading… ${bytes(p.downloaded)} of ${bytes(p.total)}`, 0.05 + f * 0.6, p.message || '');
+      } else if (p.stage === 'verifying') {
+        set('Checking the download…', 0.67);
+      } else if (p.stage === 'installing') {
+        set('Installing…', 0.7, 'The web panel stops now while the flash is written.');
+      } else {
+        set('Getting ready…', 0.04, p.message || '');
+      }
+    }
+
+    // 2. Writing the flash and restarting.
+    set('Writing the new firmware and restarting…', 0.75,
+      (last === 'installing' ? '' : 'The web panel stopped to free memory for the update. ') +
+      "This takes about 3 minutes. Don't unplug the Yún; this page reconnects by itself.");
+    const began = Date.now();
+    let wentAway = false, back = false;
+    while (Date.now() - began < 12 * 60000) {
+      await sleep(4000);
+      const f = Math.min(0.97, 0.75 + (Date.now() - began) / (4 * 60000) * 0.22);
+      bar.style.width = `${Math.round(f * 100)}%`;
+      pct.textContent = `${Math.round(f * 100)}%`;
+      try {
+        const res = await fetch(`/yun/icon.svg?${Date.now()}`, { cache: 'no-store' });
+        if (!res.ok) throw new Error();
+        if (wentAway || Date.now() - began > 60000) { back = true; break; }
+      } catch (e) {
+        wentAway = true;
+      }
+    }
+    updating = false;
+    if (!back) {
+      bar.parentElement.className = 'meter warn';
+      set('The Yún hasn’t come back yet', 1,
+        'If it still isn’t reachable in a few minutes, unplug it and plug it in again. The serial console shows how far it got.');
+      return;
+    }
+    set('Done', 1);
+    // The restart ended this session: sign in again to see the new version.
+    try {
+      const s = await api.call('yun', 'status');
+      renderStatus(s);
+      set(`Updated to ${s.firmware?.version || 'the new version'}`, 1, from ? `Was ${from}.` : '');
+      toast(`Updated to ${s.firmware?.version}`);
+    } catch (err) {
+      signedOut();
+      $('#login-error').textContent = 'The update is installed and the Yún has restarted. Sign in again.';
+      $('#login-error').hidden = false;
+    }
+    $('#fw-check').disabled = false;
+  }
+
   // --- Login ---------------------------------------------------------------
 
   function signedOut() {
     clearInterval(pollTimer);
+    clearInterval(usbTimer);
     clearTimeout(clockTimer);
     clearInterval(dataTimer);
     api.logout();
@@ -583,6 +1106,24 @@
     $('#join-form').addEventListener('submit', join);
     $('#join-cancel').addEventListener('click', () => ($('#join-form').hidden = true));
     $('#join-enc').addEventListener('change', updateKeyField);
+    $('#join-eap-type').addEventListener('change', updatePhase2);
+    $('#direct-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const key = $('#direct-key').value;
+      if (key.length < 8) return toast('The password must be 8 to 63 characters', true);
+      try {
+        await api.call('yun', 'wifi_direct', { enabled: true, key });
+        $('#direct-key').value = '';
+        toast(`${$('#direct-ssid').textContent} is on, with that password`);
+        setTimeout(poll, 2500);
+      } catch (err) {
+        toast(err.message, true);
+      }
+    });
+    $('#direct-off').addEventListener('click', async () => {
+      await api.call('yun', 'wifi_direct', { enabled: false }).catch((e) => toast(e.message, true));
+      setTimeout(poll, 2500);
+    });
     $('#ap-btn').addEventListener('click', async () => {
       if (!confirm('Switch to setup mode? The Yún leaves its Wi-Fi network and starts its own.')) return;
       await api.call('yun', 'wifi_setup_ap').catch((e) => toast(e.message, true));
@@ -607,6 +1148,8 @@
     });
     setupDropzones();
     setupSettings();
+    setupTerminal();
+    setupVpn();
     setupTheme();
 
     $('#app').classList.remove('booting');

@@ -123,6 +123,39 @@ class NetworkSetupTest(unittest.TestCase):
         self.assertEqual(self.uci('firewall.@zone[0].network'), 'lan')
         self.assertEqual(self.uci('umdns.@umdns[0].network'), 'lan wan wwan')
 
+    def test_sd_cards_are_mounted(self):
+        storage = os.path.join(BASE, 'etc', 'uci-defaults', '91-yun-storage')
+        # As fstools' own first-boot default writes it, with no card in.
+        with open(os.path.join(self.conf, 'fstab'), 'w') as f:
+            f.write("config 'global'\n\toption\tanon_swap\t'0'\n\toption\tanon_mount\t'0'\n"
+                    "\toption\tauto_swap\t'1'\n\toption\tauto_mount\t'1'\n")
+        self.run_script(storage)
+        self.assertEqual(self.uci('fstab.@global[0].anon_mount'), '1')
+        self.assertEqual(self.uci('fstab.@global[0].auto_mount'), '1')
+        os.remove(os.path.join(self.conf, 'fstab'))
+        with open(os.path.join(self.conf, 'fstab'), 'w') as f:
+            pass
+        self.run_script(storage)
+        self.assertEqual(self.uci('fstab.@global[0].anon_mount'), '1')
+
+    def test_ethernet_is_the_preferred_route(self):
+        self.first_boot()
+        self.assertEqual(self.uci('network.wan.metric'), '10')
+        self.assertEqual(self.uci('network.wan6.metric'), '10')
+        self.assertEqual(self.uci('network.wwan.metric'), '20')
+
+    def test_route_metrics_on_update_keep_hand_set_ones(self):
+        # A board from 2026.3 or older: no metrics yet, one set by hand.
+        self.first_boot()
+        for key in ('wan.metric', 'wan6.metric'):
+            subprocess.run([UCI, '-c', self.conf, 'delete', f'network.{key}'], check=True)
+        subprocess.run([UCI, '-c', self.conf, 'set', 'network.wwan.metric=5'], check=True)
+        subprocess.run([UCI, '-c', self.conf, 'commit', 'network'], check=True)
+        self.first_boot()         # sysupgrade runs the uci-defaults again
+        self.assertEqual(self.uci('network.wan.metric'), '10')
+        self.assertEqual(self.uci('network.wan6.metric'), '10')
+        self.assertEqual(self.uci('network.wwan.metric'), '5')
+
     def test_first_boot_twice_is_harmless(self):
         self.first_boot()
         self.first_boot()
@@ -194,6 +227,171 @@ class NetworkSetupTest(unittest.TestCase):
         self.run_script(yun_wifi, 'client', 'Cafe', 'none')
         self.assertEqual(self.uci('wireless.yun_sta.encryption'), 'none')
         self.assertIsNone(self.uci('wireless.yun_sta.key'))
+
+    def test_enterprise_network(self):
+        self.first_boot()
+        yun_wifi = os.path.join(BASE, 'usr', 'bin', 'yun-wifi')
+        self.run_script(yun_wifi, 'client-eap', 'eduroam', 'wpa3-mixed', 'peap', 'MSCHAPV2',
+                        'dan@example.edu', "p@ss 'word", 'anonymous@example.edu', 'radius.example.edu')
+        for key, value in (('ssid', 'eduroam'), ('encryption', 'wpa3-mixed'), ('eap_type', 'peap'),
+                           ('auth', 'MSCHAPV2'), ('identity', 'dan@example.edu'), ('password', "p@ss 'word"),
+                           ('anonymous_identity', 'anonymous@example.edu'), ('ca_cert_usesystem', '1'),
+                           ('domain_suffix_match', 'radius.example.edu'), ('ieee80211w', '1'),
+                           ('disabled', '0')):
+            self.assertEqual(self.uci(f'wireless.yun_sta.{key}'), value, key)
+        self.assertIsNone(self.uci('wireless.yun_sta.key'))
+        self.assertEqual(self.uci('wireless.yun_ap.disabled'), '1')
+        self.assertEqual(self.run_script(yun_wifi, 'status').strip(), 'client')
+
+        # Back to a home network: no Enterprise settings left behind.
+        self.run_script(yun_wifi, 'client', 'Home', 'psk2', 'password1')
+        for key in ('eap_type', 'auth', 'identity', 'password', 'anonymous_identity',
+                    'ca_cert_usesystem', 'domain_suffix_match', 'ieee80211w'):
+            self.assertIsNone(self.uci(f'wireless.yun_sta.{key}'), key)
+        self.assertEqual(self.uci('wireless.yun_sta.key'), 'password1')
+
+    def test_enterprise_without_server_check(self):
+        self.first_boot()
+        self.run_script(os.path.join(BASE, 'usr', 'bin', 'yun-wifi'), 'client-eap', 'Campus', 'wpa2',
+                        'ttls', 'PAP', 'dan', 'secret', '', '')
+        self.assertEqual(self.uci('wireless.yun_sta.auth'), 'PAP')
+        self.assertIsNone(self.uci('wireless.yun_sta.ca_cert_usesystem'))
+        self.assertIsNone(self.uci('wireless.yun_sta.anonymous_identity'))
+        self.assertIsNone(self.uci('wireless.yun_sta.ieee80211w'))
+
+    def test_enterprise_rejects_bad_input(self):
+        self.first_boot()
+        yun_wifi = os.path.join(BASE, 'usr', 'bin', 'yun-wifi')
+        for args in (('Campus', 'psk2', 'peap', 'MSCHAPV2', 'dan', 'pw'),
+                     ('Campus', 'wpa2', 'tls', 'MSCHAPV2', 'dan', 'pw'),
+                     ('Campus', 'wpa2', 'peap', 'MSCHAPV2', 'dan', '')):
+            p = subprocess.run(['sh', yun_wifi, 'client-eap', *args], capture_output=True, text=True, env=self.env)
+            self.assertEqual(p.returncode, 1, args)
+        self.assertEqual(self.uci('wireless.yun_sta.disabled'), '1')
+
+    WG_CONF = """# From the router's WireGuard page
+[Interface]
+PrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=
+Address = 10.8.0.5/32, fd00:8::5/128
+DNS = 10.8.0.1
+
+[Peer]
+PublicKey = xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=
+PresharedKey = /UwcSPg38hW/D9Y3tcS1FOV0K1wuURMbS0sesJEP5ak=
+AllowedIPs = 10.8.0.0/24,fd00:8::/64
+Endpoint = vpn.example.com:51820
+"""
+
+    def yun_vpn(self, *args, conf=None, check=True):
+        if conf is not None:
+            path = os.path.join(self.tmp.name, 'wg.conf')
+            with open(path, 'w') as f:
+                f.write(conf)
+            args = (args[0], path) + args[1:]
+        p = subprocess.run(['sh', os.path.join(BASE, 'usr', 'bin', 'yun-vpn'), *args],
+                           capture_output=True, text=True, env=self.env)
+        if check:
+            self.assertEqual(p.returncode, 0, p.stderr)
+        return p
+
+    def uci_list(self, key):
+        p = subprocess.run([UCI, '-q', '-c', self.conf, 'get', key], capture_output=True, text=True)
+        return p.stdout.split()
+
+    def test_vpn_import(self):
+        self.first_boot()
+        self.yun_vpn('import', conf=self.WG_CONF)
+        self.assertEqual(self.uci('network.yunvpn.proto'), 'wireguard')
+        self.assertEqual(self.uci('network.yunvpn.private_key'), 'yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=')
+        self.assertEqual(self.uci_list('network.yunvpn.addresses'), ['10.8.0.5/32', 'fd00:8::5/128'])
+        self.assertEqual(self.uci('network.yunvpn_server'), 'wireguard_yunvpn')
+        self.assertEqual(self.uci('network.yunvpn_server.public_key'), 'xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=')
+        self.assertEqual(self.uci('network.yunvpn_server.preshared_key'), '/UwcSPg38hW/D9Y3tcS1FOV0K1wuURMbS0sesJEP5ak=')
+        self.assertEqual(self.uci_list('network.yunvpn_server.allowed_ips'), ['10.8.0.0/24', 'fd00:8::/64'])
+        self.assertEqual(self.uci('network.yunvpn_server.endpoint_host'), 'vpn.example.com')
+        self.assertEqual(self.uci('network.yunvpn_server.endpoint_port'), '51820')
+        self.assertEqual(self.uci('network.yunvpn_server.persistent_keepalive'), '25')
+        self.assertEqual(self.uci('network.yunvpn_server.route_allowed_ips'), '1')
+        self.assertIn('yunvpn', self.uci('firewall.@zone[1].network').split())
+
+        # Importing again replaces it, and doesn't list the zone twice.
+        self.yun_vpn('import', conf=self.WG_CONF.replace('vpn.example.com:51820', '[2001:db8::1]:4500')
+                     .replace('DNS = 10.8.0.1', 'MTU = 1380') + 'PersistentKeepalive = 15\n')
+        self.assertEqual(self.uci('network.yunvpn_server.endpoint_host'), '2001:db8::1')
+        self.assertEqual(self.uci('network.yunvpn_server.endpoint_port'), '4500')
+        self.assertEqual(self.uci('network.yunvpn_server.persistent_keepalive'), '15')
+        self.assertEqual(self.uci('network.yunvpn.mtu'), '1380')
+        self.assertEqual(self.uci('firewall.@zone[1].network').split().count('yunvpn'), 1)
+
+        self.yun_vpn('off')
+        self.assertEqual(self.uci('network.yunvpn.disabled'), '1')
+        self.yun_vpn('on')
+        self.assertIsNone(self.uci('network.yunvpn.disabled'))
+        self.yun_vpn('remove')
+        self.assertIsNone(self.uci('network.yunvpn'))
+        self.assertIsNone(self.uci('network.yunvpn_server'))
+        self.assertNotIn('yunvpn', self.uci('firewall.@zone[1].network').split())
+
+    def test_vpn_rejects_bad_files(self):
+        self.first_boot()
+        c = self.WG_CONF
+        for bad, why in ((c.replace('PrivateKey = yAnz', 'PrivateKey = zzz'), 'PrivateKey'),
+                         (c.replace('Endpoint = vpn.example.com:51820', ''), 'Endpoint'),
+                         (c.replace('vpn.example.com', 'vpn.example.com;reboot'), 'Endpoint'),
+                         (c.replace('10.8.0.5/32', '10.8.0.5/32 $(reboot)'), 'Address'),
+                         (c + '[Peer]\nPublicKey = xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=\n', 'exactly one'),
+                         ('hello', 'exactly one')):
+            p = self.yun_vpn('import', conf=bad, check=False)
+            self.assertEqual(p.returncode, 1, why)
+            self.assertIn(why, p.stderr)
+        self.assertIsNone(self.uci('network.yunvpn'))
+
+    def test_direct_network(self):
+        self.first_boot()
+        yun_wifi = os.path.join(BASE, 'usr', 'bin', 'yun-wifi')
+        ssid = self.uci('wireless.yun_ap.ssid')
+        self.run_script(yun_wifi, 'client', 'Home', 'psk2', 'password1')
+        self.assertEqual(self.uci('wireless.yun_ap.disabled'), '1')
+
+        self.run_script(yun_wifi, 'direct', 'on', "yun pass'1")
+        self.assertEqual(self.uci('wireless.yun_ap.disabled'), '0')         # next to the client
+        self.assertEqual(self.uci('wireless.yun_sta.disabled'), '0')
+        self.assertEqual(self.uci('wireless.yun_ap.encryption'), 'psk2')
+        self.assertEqual(self.uci('wireless.yun_ap.key'), "yun pass'1")
+        self.assertEqual(self.uci('wireless.yun_ap.ssid'), ssid)
+        self.assertEqual(self.uci('arduino.@arduino[0].direct_ap'), '1')
+
+        # Setup mode is the open network, as always ...
+        self.run_script(yun_wifi, 'fallback')
+        self.assertEqual(self.uci('wireless.yun_ap.encryption'), 'none')
+        self.assertIsNone(self.uci('wireless.yun_ap.key'))
+        # ... and back as a client, the direct network has its password again.
+        self.run_script(yun_wifi, 'retry')
+        self.assertEqual(self.uci('wireless.yun_ap.disabled'), '0')
+        self.assertEqual(self.uci('wireless.yun_ap.encryption'), 'psk2')
+        self.run_script(yun_wifi, 'client', 'Other', 'psk2', 'password2')
+        self.assertEqual(self.uci('wireless.yun_ap.disabled'), '0')
+        self.assertEqual(self.uci('wireless.yun_ap.key'), "yun pass'1")
+
+        # sync (at boot, after an update) keeps it that way.
+        subprocess.run([UCI, '-c', self.conf, 'set', 'wireless.yun_ap.disabled=1'], check=True)
+        subprocess.run([UCI, '-c', self.conf, 'set', 'wireless.yun_ap.encryption=none'], check=True)
+        subprocess.run([UCI, '-c', self.conf, 'commit', 'wireless'], check=True)
+        self.run_script(yun_wifi, 'sync', '--no-reload')
+        self.assertEqual(self.uci('wireless.yun_ap.disabled'), '0')
+        self.assertEqual(self.uci('wireless.yun_ap.encryption'), 'psk2')
+
+        self.run_script(yun_wifi, 'direct', 'off')
+        self.assertEqual(self.uci('wireless.yun_ap.disabled'), '1')
+        self.assertEqual(self.uci('wireless.yun_ap.encryption'), 'none')
+        self.assertIsNone(self.uci('arduino.@arduino[0].direct_ap_key'))
+
+    def test_direct_network_needs_a_password(self):
+        self.first_boot()
+        p = subprocess.run(['sh', os.path.join(BASE, 'usr', 'bin', 'yun-wifi'), 'direct', 'on', 'short'],
+                           capture_output=True, text=True, env=self.env)
+        self.assertEqual(p.returncode, 1)
+        self.assertIsNone(self.uci('arduino.@arduino[0].direct_ap_key'))
 
     def test_client_needs_a_key(self):
         self.first_boot()

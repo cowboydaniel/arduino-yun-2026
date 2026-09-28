@@ -7,6 +7,7 @@ export function cursor() {
 	let log = [];
 	return {
 		get: (c, s, o) => conf?.[c]?.[s]?.[o],
+		get_all: (c, s) => conf?.[c]?.[s],
 		set: function(c, s, o, v) { conf[c] ??= {}; conf[c][s] ??= {}; conf[c][s][o] = v; push(log, [c, s, o, v]); },
 		save: (c) => true,
 		commit: function(c) { writefile(getenv('UCI_LOG'), sprintf('%J', log)); return true; },

@@ -97,9 +97,12 @@ New layout (device `arduino_yun-2026`, compatible `arduino,yun-2026`):
 | --- | --- | --- | --- |
 | 0x000000 | 256k | u-boot | unchanged, never written |
 | 0x040000 | 64k | u-boot-env | unchanged, never written |
-| 0x050000 | 14656k | firmware | kernel uImage, then squashfs, then jffs2 rootfs_data |
-| 0xea0000 | 1280k | loader | OpenWrt lzma-loader (~20 KB) as an lzma uImage |
+| 0x050000 | 14656k | fwconcat0 | first part of `firmware`: kernel uImage, then squashfs, then jffs2 rootfs_data |
+| 0xea0000 | 64k | loader | OpenWrt lzma-loader (about 3.5 KB) as an lzma uImage |
+| 0xeb0000 | 1216k | fwconcat1 | the rest of `firmware`: more rootfs_data |
 | 0xfe0000 | 64k | nvram | unchanged |
+
+`firmware` (15872k) is `fwconcat0` and `fwconcat1` joined with `mtd-concat`, the way OpenWrt's Senao boards join the flash on both sides of their loader. Before 2026.4 the loader had the old kernel slot's whole 1280k to itself, and the 1216k after it was wasted; now it's space for settings and packages. The first time rootfs_data is mounted, the jffs2 end-of-filesystem marker (`532-jffs2_eofdetect.patch`) makes the kernel erase every block after it, so whatever was there before (the old Linino kernel, on a board that came from stock) never shows up as files.
 | 0xff0000 | 64k | art | unchanged |
 
 Boot sequence:
@@ -113,13 +116,13 @@ The kernel uImage is given the squashfs magic, so the image starts with `hsqs`. 
 
 The build produces two images:
 
-- `linino-upgrade.bin`: kernel + rootfs, padded to 14656k, with the loader appended and the whole thing gzipped. You install it from stock Linino with the stock `sysupgrade`.
-- `sysupgrade.bin`: kernel + rootfs with metadata. It's for later updates on the new firmware, and it only rewrites `firmware`, not the loader.
+- `linino-upgrade.bin`: kernel + rootfs, padded to 14656k, with the loader appended, padded with 0xff up to nvram (15936k), and the whole thing gzipped. You install it from stock Linino with the stock `sysupgrade`. The kernel and rootfs must fit before the loader.
+- `sysupgrade.bin`: kernel + rootfs with metadata. It's for later updates on the new firmware, and it only rewrites `firmware`, not the loader. Boards still on 2026.1-2026.3 have the old 14656k `firmware` partition and write the image into that, so the build also checks it fits in 14656k; after the reboot the new device tree gives them the 1216k after the loader too.
 
 The changes to OpenWrt are in [`openwrt/patches/0001-ath79-add-arduino-yun-2026-layout.patch`](../openwrt/patches/0001-ath79-add-arduino-yun-2026-layout.patch):
 
 - new `dts/ar9331_arduino_yun-2026.dts`, a copy of the upstream Yún device tree with the new partitions
-- `Device/arduino_yun-2026` in `image/generic.mk`, with a `pad-to-ff` step so the gap between the rootfs and the loader is erased flash (0xff) rather than zeros
+- `Device/arduino_yun-2026` in `image/generic.mk`, with `pad-to-ff` steps so the gap between the rootfs and the loader, and the flash after the loader, are erased flash (0xff) rather than zeros
 - `arduino,yun-2026` in `board.d/02_network` (the Ethernet jack is a DHCP client, `wan`, with the stock MAC; not upstream's 192.168.1.1 LAN with a DHCP server) and in `uboot-envtools`
 - `u-boot-env` is read-only as well as `u-boot`
 

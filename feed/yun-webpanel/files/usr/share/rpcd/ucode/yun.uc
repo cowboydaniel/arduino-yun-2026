@@ -10,7 +10,7 @@
 
 'use strict';
 
-import { readfile, writefile, popen, stat, glob, unlink, access } from 'fs';
+import { readfile, writefile, popen, stat, glob, unlink, access, open, mkdir, lsdir, readlink } from 'fs';
 import { cursor } from 'uci';
 import * as ubus from 'ubus';
 import * as bridge from 'yun.bridge';
@@ -45,6 +45,9 @@ const ZONES = {
 };
 
 const ENCRYPTIONS = ['none', 'psk', 'psk2', 'psk-mixed', 'sae', 'sae-mixed'];
+// WPA2/WPA3-Enterprise (802.1X), such as eduroam.
+const EAP_ENCRYPTIONS = ['wpa2', 'wpa3-mixed', 'wpa3'];
+const EAP_METHODS = { peap: [ 'MSCHAPV2' ], ttls: [ 'PAP', 'MSCHAPV2', 'MSCHAP', 'CHAP', 'EAP-MSCHAPV2' ] };
 const SKETCH = '/tmp/sketch.hex';
 
 function trim_read(path) {
@@ -146,7 +149,14 @@ function scan_encryption(crypto) {
 	if (sae && psk) return 'sae-mixed';
 	if (sae) return 'sae';
 	if (psk) return 'psk2';
-	return eap ? 'eap' : 'none';
+	if (eap) {
+		// WPA3-Enterprise uses SHA-256 key management.
+		for (let k in keys)
+			if (index(lc(k), 'sha256') >= 0 || index(lc(k), 'suite-b') >= 0)
+				return 'wpa3-mixed';
+		return 'wpa2';
+	}
+	return 'none';
 }
 
 // iwinfo's link quality is 0..70.
@@ -209,7 +219,8 @@ function meminfo() {
 		let kv = match(line, /^(\w+):\s+(\d+) kB/);
 		if (kv) m[kv[1]] = +kv[2] * 1024;
 	}
-	return { total: m.MemTotal, free: m.MemFree, available: m.MemAvailable ?? m.MemFree };
+	return { total: m.MemTotal, free: m.MemFree, available: m.MemAvailable ?? m.MemFree,
+		swap_total: m.SwapTotal ?? 0, swap_free: m.SwapFree ?? 0 };
 }
 
 function storage() {
@@ -256,6 +267,211 @@ function root_password_set() {
 	return false;
 }
 
+
+// --- Terminal ---------------------------------------------------------------
+//
+// Each command runs as a background job whose output goes to a file, which
+// the panel polls. Output is capped (a runaway command can't fill /tmp, which
+// is RAM), commands get no input, and the working directory carries over
+// from one command to the next the way the panel passes it back.
+
+const SHELL_DIR = '/tmp/yun-shell';
+const SHELL_MAX_OUTPUT = 1048576;
+const SHELL_MAX_JOBS = 3;
+
+// The job, run by /bin/sh with $1 = directory, $2 = command, $3 = file prefix.
+// The EXIT trap records the exit code and directory even when the command
+// itself runs "exit".
+const SHELL_JOB = `
+{
+	sh -c 'echo $$ > "$3.pid"
+		cd "$1" 2>/dev/null || cd /root
+		trap '"'"'rc=$?; pwd > "$3.cwd"; echo $rc > "$3.rc"'"'"' EXIT
+		eval "$2"' sh "$1" "$2" "$3" </dev/null 2>&1 |
+		head -c ${SHELL_MAX_OUTPUT} > "$3.out"
+	touch "$3.done"
+} >/dev/null 2>&1 &
+`;
+
+function shell_job_path(id) {
+	return match(id ?? '', /^[0-9a-f]{16}$/) ? `${SHELL_DIR}/${id}` : null;
+}
+
+function shell_running() {
+	let n = 0;
+	for (let f in glob(`${SHELL_DIR}/*.pid`))
+		if (!stat(replace(f, /\.pid$/, '.done')))
+			n++;
+	return n;
+}
+
+// Files of jobs nobody has polled for an hour.
+function shell_cleanup() {
+	let old = time() - 3600;
+	for (let f in glob(`${SHELL_DIR}/*`)) {
+		let st = stat(f);
+		if (st && st.mtime < old)
+			unlink(f);
+	}
+}
+
+// Kill a job's process and everything it started.
+function shell_kill_tree(pid) {
+	let children = {};
+	for (let d in lsdir('/proc') ?? []) {
+		if (!match(d, /^[0-9]+$/))
+			continue;
+		let st = readfile(`/proc/${d}/stat`);
+		let m = st ? match(st, /\) \S (\d+)/) : null;
+		if (m)
+			push(children[m[1]] ??= [], d);
+	}
+	let all = [], todo = [ '' + pid ];
+	while (length(todo)) {
+		let p = shift(todo);
+		push(all, p);
+		for (let c in children[p] ?? [])
+			push(todo, c);
+	}
+	system([ 'kill', '-TERM', ...all ]);
+	system([ 'sh', '-c', 'sleep 1; kill -KILL "$@" 2>/dev/null', 'sh', ...all ]);
+}
+
+// Start a command as a terminal job; the panel follows it with shell_poll.
+function shell_launch(cmd, cwd) {
+	mkdir(SHELL_DIR, 0700);
+	shell_cleanup();
+	if (shell_running() >= SHELL_MAX_JOBS)
+		return { error: `Already running ${SHELL_MAX_JOBS} commands; stop one first` };
+	let id = hexenc(readfile('/dev/urandom', 8));
+	system([ '/bin/sh', '-c', SHELL_JOB, 'sh', cwd, cmd, shell_job_path(id) ]);
+	return { id };
+}
+
+// --- USB devices ---------------------------------------------------------
+//
+// What's plugged into the USB port, and for a device no driver has claimed,
+// which OpenWrt package has one. The kernel is built like OpenWrt's official
+// one, so these install from downloads.openwrt.org with apk.
+
+const USB_SYSFS = getenv('YUN_USB_SYSFS') ?? '/sys/bus/usb/devices';
+// The SD card slot is a card reader on port 4 of the Yun's internal hub.
+const USB_SD_READER = '1-1.4';
+
+// By vendor:product, then by vendor: chips that identify as "vendor
+// specific", so their class says nothing.
+const USB_BY_ID = {
+	'0e8d:7612': [ 'kmod-mt76x2u' ],                     // MediaTek MT7612U: 5 GHz Wi-Fi
+	'0e8d:7632': [ 'kmod-mt76x2u' ],
+	'0e8d:7961': [ 'kmod-mt7921u' ],                     // MediaTek MT7921AU: Wi-Fi 6
+	'148f:7601': [ 'kmod-mt7601u' ],                     // MediaTek MT7601U: 2.4 GHz
+	'0bda:8152': [ 'kmod-usb-net-rtl8152' ],             // Realtek USB Ethernet
+	'0bda:8153': [ 'kmod-usb-net-rtl8152' ],
+	'0bda:8156': [ 'kmod-usb-net-rtl8152' ],
+	'0b95:1790': [ 'kmod-usb-net-asix-ax88179' ],        // ASIX gigabit Ethernet
+	'0b95:772b': [ 'kmod-usb-net-asix' ],
+	'0b95:7720': [ 'kmod-usb-net-asix' ],
+	'0403': [ 'kmod-usb-serial-ftdi' ],                  // FTDI serial
+	'1a86': [ 'kmod-usb-serial-ch341' ],                 // WCH CH340/CH341 serial
+	'10c4': [ 'kmod-usb-serial-cp210x' ],                // Silicon Labs CP210x serial
+	'067b': [ 'kmod-usb-serial-pl2303' ],                // Prolific PL2303 serial
+};
+
+// By interface class (and subclass/protocol).
+function usb_packages_for_class(cls, sub, proto) {
+	switch (cls) {
+	case '01': return [ 'kmod-usb-audio' ];
+	case '02':
+		if (sub == '02') return [ 'kmod-usb-acm' ];
+		if (sub == '06') return [ 'kmod-usb-net-cdc-ether' ];
+		if (sub == '0d') return [ 'kmod-usb-net-cdc-ncm' ];
+		return null;
+	case '03': return [ 'kmod-usb-hid' ];
+	case '07': return [ 'kmod-usb-printer' ];
+	case '08': return [ 'kmod-usb-storage-uas' ];
+	case '0e': return [ 'kmod-video-uvc' ];
+	case 'e0':
+		if (sub == '01' && proto == '01') return [ 'kmod-bluetooth' ];
+		if (sub == '01' && proto == '03') return [ 'kmod-usb-net-rndis' ];
+		return null;
+	case 'ef':
+		if (sub == '04' && proto == '01') return [ 'kmod-usb-net-rndis' ];
+		return null;
+	}
+	return null;
+}
+
+const USB_CLASS_NAMES = {
+	'01': 'Audio', '02': 'Communications', '03': 'Input (HID)', '06': 'Camera (still image)',
+	'07': 'Printer', '08': 'Storage', '09': 'Hub', '0a': 'Communications data', '0e': 'Video',
+	'e0': 'Wireless', 'ef': 'Miscellaneous', 'ff': 'Vendor specific',
+};
+
+// Every package the panel may install: nothing else goes to apk.
+function usb_known_packages() {
+	let all = {};
+	for (let id, pkgs in USB_BY_ID)
+		for (let p in pkgs) all[p] = true;
+	for (let c in [ ['01'], ['02', '02'], ['02', '06'], ['02', '0d'], ['03'], ['07'], ['08'], ['0e'],
+	                ['e0', '01', '01'], ['e0', '01', '03'] ])
+		for (let p in usb_packages_for_class(...c) ?? []) all[p] = true;
+	return all;
+}
+
+function usb_attr(dir, name) {
+	return trim_read(`${dir}/${name}`);
+}
+
+function usb_devices() {
+	let res = [];
+	for (let name in sort(lsdir(USB_SYSFS) ?? [])) {
+		// Devices are like 1-1.4; interfaces (1-1.4:1.0) and root hubs
+		// (usb1) are left out.
+		if (!match(name, /^[0-9]+-[0-9.]+$/))
+			continue;
+		let dir = `${USB_SYSFS}/${name}`;
+		let vid = usb_attr(dir, 'idVendor'), pid = usb_attr(dir, 'idProduct');
+		let dev_class = usb_attr(dir, 'bDeviceClass');
+		if (!vid || dev_class == '09')
+			continue;
+
+		let interfaces = [], missing = false, suggest = null;
+		for (let ifname in sort(lsdir(dir) ?? [])) {
+			if (index(ifname, `${name}:`) != 0)
+				continue;
+			let idir = `${dir}/${ifname}`;
+			let cls = usb_attr(idir, 'bInterfaceClass'), sub = usb_attr(idir, 'bInterfaceSubClass');
+			let proto = usb_attr(idir, 'bInterfaceProtocol');
+			let drv = readlink(`${idir}/driver`);
+			drv = drv ? replace(drv, /^.*\//, '') : null;
+			// Data interfaces are claimed by the driver of their control
+			// interface; don't count them as missing a driver.
+			if (!drv && cls != '0a') {
+				missing = true;
+				suggest ??= usb_packages_for_class(cls, sub, proto);
+			}
+			push(interfaces, { class: cls, type: USB_CLASS_NAMES[cls] ?? 'Other', driver: drv });
+		}
+		if (missing)
+			suggest = USB_BY_ID[`${vid}:${pid}`] ?? USB_BY_ID[vid] ?? suggest;
+
+		let product = usb_attr(dir, 'product'), maker = usb_attr(dir, 'manufacturer');
+		push(res, {
+			path: name,
+			id: `${vid}:${pid}`,
+			name: product ?? `USB device ${vid}:${pid}`,
+			manufacturer: maker,
+			speed: +(usb_attr(dir, 'speed') ?? 0),
+			builtin: name == USB_SD_READER,
+			types: uniq(map(filter(interfaces, i => i.class != '0a'), i => i.type)),
+			drivers: uniq(filter(map(interfaces, i => i.driver), d => d)),
+			needs_driver: missing,
+			packages: missing ? (suggest ?? []) : [],
+		});
+	}
+	return res;
+}
+
 const methods = {
 	status: {
 		call: function() {
@@ -276,6 +492,7 @@ const methods = {
 				ifname: wifname,
 				ssid: info.ssid ?? uci.get('wireless', client ? 'yun_sta' : 'yun_ap', 'ssid'),
 				ap_ssid: uci.get('wireless', 'yun_ap', 'ssid'),
+				direct: uci.get('arduino', '@arduino[0]', 'direct_ap') == '1',
 				connected: client ? (info.stations ?? 0) > 0 : true,
 				signal: client ? info.signal : null,
 				quality: client ? info.quality : null,
@@ -338,16 +555,37 @@ const methods = {
 					quality: quality_pct(cell.quality),
 					encryption: scan_encryption(cell.crypto),
 				});
-			return { results: filter(results, r => r.ssid != null && r.ssid != '' && r.encryption != 'eap') };
+			return { results: filter(results, r => r.ssid != null && r.ssid != '') };
 		}
 	},
 
 	wifi_client: {
-		args: { ssid: '', encryption: '', key: '' },
+		args: { ssid: '', encryption: '', key: '', eap: '', phase2: '', identity: '',
+			password: '', anonymous_identity: '', domain: '' },
 		call: function(req) {
-			let ssid = req.args.ssid, enc = req.args.encryption, key = req.args.key ?? '';
+			let a = req.args;
+			let ssid = a.ssid, enc = a.encryption, key = a.key ?? '';
 			if (type(ssid) != 'string' || length(ssid) < 1 || length(ssid) > 32)
 				return { error: 'The network name must be 1 to 32 characters' };
+			if (enc in EAP_ENCRYPTIONS) {
+				let eap = a.eap ?? 'peap', phase2 = a.phase2 ?? EAP_METHODS[eap]?.[0];
+				let identity = a.identity ?? '', password = a.password ?? '';
+				let anon = a.anonymous_identity ?? '', domain = a.domain ?? '';
+				if (!(eap in EAP_METHODS) || !(phase2 in EAP_METHODS[eap]))
+					return { error: 'Unsupported EAP method' };
+				if (type(identity) != 'string' || !length(identity) || length(identity) > 253)
+					return { error: 'Enter your username' };
+				if (type(password) != 'string' || !length(password) || length(password) > 256)
+					return { error: 'Enter your password' };
+				if (type(anon) != 'string' || length(anon) > 253 || type(domain) != 'string' ||
+				    (domain != '' && !match(domain, /^[A-Za-z0-9.-]{1,253}$/)))
+					return { error: 'Invalid server domain' };
+				if (bad_chars(ssid + identity + password + anon))
+					return { error: 'Invalid characters' };
+				spawn_later(2, 'exec yun-wifi client-eap "$@"',
+					[ ssid, enc, eap, phase2, identity, password, anon, domain ]);
+				return { ok: true };
+			}
 			if (!(enc in ENCRYPTIONS))
 				return { error: 'Unsupported security type' };
 			if (enc != 'none' && (length(key) < 8 || length(key) > 63))
@@ -356,6 +594,24 @@ const methods = {
 				return { error: 'Invalid characters' };
 			// Reply first: switching networks drops this connection.
 			spawn_later(2, 'exec yun-wifi client "$1" "$2" "$3"', [ ssid, enc, key ]);
+			return { ok: true };
+		}
+	},
+
+	// The Yun's own network, with a password, next to the client.
+	wifi_direct: {
+		args: { enabled: false, key: '' },
+		call: function(req) {
+			let key = req.args.key ?? '';
+			if (!req.args.enabled) {
+				spawn_later(1, 'exec yun-wifi direct off');
+				return { ok: true };
+			}
+			if (type(key) != 'string' || length(key) < 8 || length(key) > 63)
+				return { error: 'The password must be 8 to 63 characters' };
+			if (bad_chars(key))
+				return { error: 'Invalid characters' };
+			spawn_later(1, 'exec yun-wifi direct on "$1"', [ key ]);
 			return { ok: true };
 		}
 	},
@@ -466,6 +722,150 @@ const methods = {
 		}
 	},
 
+	shell_start: {
+		args: { command: '', cwd: '' },
+		call: function(req) {
+			let cmd = req.args.command, cwd = req.args.cwd ?? '/root';
+			if (type(cmd) != 'string' || trim(cmd) == '' || length(cmd) > 4096)
+				return { error: 'Type a command' };
+			if (index(cmd, '\u0000') >= 0 || type(cwd) != 'string' || index(cwd, '\u0000') >= 0)
+				return { error: 'Invalid characters' };
+			return shell_launch(cmd, cwd);
+		}
+	},
+
+	shell_poll: {
+		args: { id: '', offset: 0 },
+		call: function(req) {
+			let path = shell_job_path(req.args.id);
+			if (!path || !stat(`${path}.out`))
+				return { error: 'No such command' };
+			let offset = int(req.args.offset ?? 0);
+			let f = open(`${path}.out`, 'r');
+			f.seek(offset);
+			let output = f.read(65536) ?? '';
+			f.close();
+			offset += length(output);
+			let done = stat(`${path}.done`) != null;
+			let size = stat(`${path}.out`)?.size ?? 0;
+			// Base64: output can be any bytes, and a chunk can end halfway
+			// through a UTF-8 character; the panel decodes it as a stream.
+			let res = { output: b64enc(output), offset, done: done && offset >= size };
+			if (res.done) {
+				let rc = trim_read(`${path}.rc`);
+				res.rc = (rc != null && !stat(`${path}.stopped`)) ? +rc : null;  // null: stopped
+				res.cwd = trim_read(`${path}.cwd`);
+				res.truncated = size >= SHELL_MAX_OUTPUT;
+				for (let ext in [ 'out', 'pid', 'rc', 'cwd', 'done', 'stopped' ])
+					unlink(`${path}.${ext}`);
+			}
+			return res;
+		}
+	},
+
+	shell_stop: {
+		args: { id: '' },
+		call: function(req) {
+			let path = shell_job_path(req.args.id);
+			let pid = path ? trim_read(`${path}.pid`) : null;
+			if (!pid || !match(pid, /^[0-9]+$/))
+				return { error: 'No such command' };
+			if (!stat(`${path}.done`)) {
+				writefile(`${path}.stopped`, '');
+				shell_kill_tree(pid);
+			}
+			return { ok: true };
+		}
+	},
+
+	usb_devices: {
+		call: function() {
+			return { devices: usb_devices() };
+		}
+	},
+
+	// Install a driver package for a USB device, as a terminal job the
+	// panel follows with shell_poll.
+	usb_install: {
+		args: { package: '' },
+		call: function(req) {
+			let pkg = req.args.package;
+			if (type(pkg) != 'string' || !usb_known_packages()[pkg])
+				return { error: 'Unknown driver package' };
+			return shell_launch(`apk update >/dev/null && apk add ${pkg}`, '/tmp');
+		}
+	},
+
+	vpn_status: {
+		call: function() {
+			let installed = !!access('/usr/bin/wg', 'x') && length(glob('/lib/modules/*/wireguard.ko')) > 0;
+			let c = cursor();
+			let iface = c.get_all('network', 'yunvpn');
+			let peer = c.get_all('network', 'yunvpn_server');
+			let res = { installed, configured: !!iface };
+			if (!iface)
+				return res;
+			res.enabled = iface.disabled != '1';
+			res.addresses = iface.addresses ?? [];
+			res.server = peer ? `${peer.endpoint_host}:${peer.endpoint_port}` : null;
+			res.allowed_ips = peer?.allowed_ips ?? [];
+			res.up = !!netifd_status('yunvpn')?.up;
+			if (installed && res.up) {
+				let r = run('wg show yunvpn dump');
+				let lines = split(trim(r.output), '\n');
+				res.public_key = split(lines[0] ?? '', '\t')[1];
+				let f = split(lines[1] ?? '', '\t');
+				if (length(f) >= 7) {
+					res.handshake = +f[4] || null;      // seconds since the epoch
+					res.rx_bytes = +f[5];
+					res.tx_bytes = +f[6];
+				}
+			}
+			return res;
+		}
+	},
+
+	vpn_install: {
+		call: function() {
+			return shell_launch('apk update >/dev/null && apk add wireguard-tools kmod-wireguard', '/tmp');
+		}
+	},
+
+	vpn_import: {
+		args: { config: '' },
+		call: function(req) {
+			let conf = req.args.config;
+			if (type(conf) != 'string' || !length(conf) || length(conf) > 8192 || index(conf, '\u0000') >= 0)
+				return { error: 'Paste or choose a WireGuard config file' };
+			let path = '/tmp/yun-vpn-import.conf';
+			let f = open(path, 'w', 0600);
+			if (!f)
+				return { error: "Can't write the config" };
+			f.write(conf);
+			f.close();
+			let r = run(`yun-vpn import ${path}`);
+			unlink(path);
+			if (r.code != 0)
+				return { error: replace(trim(r.output), /^yun-vpn: /, '') || 'The config was not accepted' };
+			return { ok: true };
+		}
+	},
+
+	vpn_set: {
+		args: { enabled: false },
+		call: function(req) {
+			let r = run(`yun-vpn ${req.args.enabled ? 'on' : 'off'}`);
+			return r.code == 0 ? { ok: true } : { error: replace(trim(r.output), /^yun-vpn: /, '') };
+		}
+	},
+
+	vpn_remove: {
+		call: function() {
+			let r = run('yun-vpn remove');
+			return r.code == 0 ? { ok: true } : { error: trim(r.output) };
+		}
+	},
+
 	update_check: {
 		call: function() {
 			if (!access('/usr/bin/yun-update', 'x'))
@@ -480,8 +880,26 @@ const methods = {
 		call: function() {
 			if (!access('/usr/bin/yun-update', 'x'))
 				return { error: 'yun-update is not installed' };
+			mkdir('/tmp/yun-update');
+			writefile('/tmp/yun-update/stage', 'starting\n');
 			spawn_later(1, 'exec yun-update apply');
 			return { ok: true };
+		}
+	},
+
+	// What "yun-update apply" is doing, for the panel to show. It answers
+	// until sysupgrade stops the web server to write the flash.
+	update_progress: {
+		call: function() {
+			let log = trim(readfile('/tmp/yun-update.log') ?? '');
+			let lines = log != '' ? split(log, '\n') : [];
+			let total = trim_read('/tmp/yun-update/total');
+			return {
+				stage: trim_read('/tmp/yun-update/stage') ?? 'idle',
+				downloaded: stat('/tmp/yun-update/sysupgrade.bin')?.size ?? 0,
+				total: total != null ? +total : null,
+				message: length(lines) ? replace(lines[-1], /^yun-update: /, '') : null
+			};
 		}
 	},
 };

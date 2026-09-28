@@ -11,9 +11,12 @@
 # The image (about 12 MB) has to sit in /tmp, which is RAM, and a running
 # Yun has only about 15 MB available. So "apply" first stops the services
 # an update doesn't need, and after the download stops DNS too, leaving
-# sysupgrade enough memory to write the flash. If anything fails before the
-# flash is written, it starts them again. Progress goes to the serial
-# console (YunSerialTerminal), the system log and /tmp/yun-update.log.
+# sysupgrade enough memory to write the flash. The web panel keeps running
+# through the download, so it can show the progress, unless the memory is
+# too tight for that; sysupgrade stops it before writing the flash. If
+# anything fails before the flash is written, it starts everything again.
+# Progress goes to the serial console, the system log, /tmp/yun-update.log,
+# and /tmp/yun-update/stage and total for the panel.
 
 REPO=${YUN_UPDATE_REPO:-cowboydaniel/arduino-yun-2026}
 API=https://api.github.com/repos/$REPO/releases/latest
@@ -27,8 +30,9 @@ PROC=${PROC:-/proc}
 MARGIN_KB=5120
 
 # Services an update doesn't need. DNS (dnsmasq) goes last, after the
-# download.
-SERVICES="uhttpd rpcd umdns cron odhcpd"
+# download. The web panel (uhttpd, rpcd) only goes if memory is short.
+SERVICES="umdns cron odhcpd"
+WEB_SERVICES="uhttpd rpcd"
 STOPPED=
 
 current() {
@@ -60,7 +64,13 @@ restart_services() {
 	STOPPED=
 }
 
+stage() {
+	mkdir -p $TMP
+	echo "$1" > $TMP/stage
+}
+
 die() {
+	stage failed
 	echo "yun-update: $*" >&2
 	echo "yun-update: $*" >> $LOG
 	logger -t yun-update "$*" 2>/dev/null
@@ -113,8 +123,11 @@ apply)
 		IMAGE=$2
 		[ -r "$IMAGE" ] || die "can't read $IMAGE"
 		say "installing $IMAGE"
+		stage installing
 		for s in $SERVICES; do stop_service $s; done
 	else
+		rm -f $TMP/sysupgrade.bin $TMP/total
+		stage checking
 		latest
 		[ -n "$IMAGE_URL" ] || die "the latest release has no sysupgrade image"
 		[ -n "$SUMS_URL" ] || die "the latest release has no SHA256SUMS, so the download can't be checked"
@@ -124,21 +137,30 @@ apply)
 		for s in $SERVICES; do stop_service $s; done
 		avail=$(available_kb)
 		need=$(( ${IMAGE_SIZE:-12582912} / 1024 + MARGIN_KB ))
+		if [ "$avail" -lt "$need" ]; then
+			say "stopping the web panel too (it's back after the update)"
+			for s in $WEB_SERVICES; do stop_service $s; done
+			avail=$(available_kb)
+		fi
 		say "${avail} KB of RAM available, ${need} KB needed"
 		[ "$avail" -ge "$need" ] ||
 			die "not enough free RAM for the update (${avail} KB available, ${need} KB needed). Restart the Yun and try again straight away, before starting a sketch that uses the Bridge."
 
 		IMAGE=$TMP/sysupgrade.bin
 		DOWNLOADED=$IMAGE
+		[ -n "$IMAGE_SIZE" ] && echo "$IMAGE_SIZE" > $TMP/total
+		stage downloading
 		say "downloading Yun $LATEST"
 		fetch "$IMAGE_URL" $IMAGE || die "download failed"
 		fetch "$SUMS_URL" $TMP/SHA256SUMS || die "download failed"
+		stage verifying
 		want=$(grep "  $(basename "$IMAGE_URL")\$" $TMP/SHA256SUMS | cut -d' ' -f1)
 		[ -n "$want" ] || die "SHA256SUMS doesn't list $(basename "$IMAGE_URL")"
 		[ "$(sha256sum $IMAGE | cut -d' ' -f1)" = "$want" ] || die "the download is damaged (SHA-256 mismatch)"
 		say "download verified"
 	fi
 
+	stage installing
 	sysupgrade -T "$IMAGE" >/dev/null 2>&1 || die "sysupgrade rejected $IMAGE"
 	# DNS isn't needed any more, and sysupgrade needs the memory.
 	stop_service dnsmasq

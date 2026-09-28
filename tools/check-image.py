@@ -16,6 +16,7 @@ import zlib
 FIRMWARE_OFFSET = 0x050000        # start of the firmware partition in flash
 FIRMWARE_SIZE = 0xf90000          # 15936k, up to nvram at 0xfe0000
 LOADER_OFFSET = 0xea0000 - FIRMWARE_OFFSET   # the old kernel slot U-Boot boots
+LOADER_SIZE = 0x10000             # its partition; the firmware goes on after it
 ERASE_BLOCK = 0x10000
 KERNEL_MAGIC = 0x68737173         # "hsqs", what stock sysupgrade checks for
 UIMAGE_MAGIC = 0x27051956
@@ -88,11 +89,19 @@ def main(path):
         # padjffs2 fills the rest of the marker's block itself; everything
         # after that should be erased flash.
         check(pad.count(0xff) >= len(pad) - ERASE_BLOCK, 'the rest up to the loader is 0xff (erased flash)')
-        free = LOADER_OFFSET - marker
-        print(f'        {free // 1024} KB left for settings and packages')
+        free = LOADER_OFFSET - marker + FIRMWARE_SIZE - LOADER_OFFSET - LOADER_SIZE
+        print(f'        {free // 1024} KB left for settings and packages (before and after the loader)')
 
     check(len(data) > LOADER_OFFSET, 'image reaches the loader slot')
-    uimage(data, LOADER_OFFSET, UIMAGE_MAGIC, 'Loader')
+    _, loader_end = uimage(data, LOADER_OFFSET, UIMAGE_MAGIC, 'Loader')
+    check(loader_end <= LOADER_OFFSET + LOADER_SIZE, f'loader fits its {LOADER_SIZE // 1024}k partition')
+
+    # The flash after the loader is the end of rootfs_data; the stock
+    # Linino kernel is there, so the image must erase it.
+    print(f'After the loader (flash 0x{FIRMWARE_OFFSET + LOADER_OFFSET + LOADER_SIZE:06x}-0x{FIRMWARE_OFFSET + FIRMWARE_SIZE:06x}):')
+    tail = data[LOADER_OFFSET + LOADER_SIZE:]
+    check(len(tail) == FIRMWARE_SIZE - LOADER_OFFSET - LOADER_SIZE and tail.count(0xff) == len(tail),
+          'all 0xff up to nvram (erases the old Linino kernel)')
 
     print('Size:')
     check(len(data) <= FIRMWARE_SIZE,

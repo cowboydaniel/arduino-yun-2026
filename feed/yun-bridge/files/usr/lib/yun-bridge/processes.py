@@ -6,7 +6,17 @@
 # Process.runShellCommand() and friends).
 
 import os
-import subprocess
+
+# Loaded with the first process, not at start: it and what it pulls in take
+# a few hundred KB, and many sketches never run a process.
+subprocess = None
+
+
+def _load_subprocess():
+    global subprocess
+    if subprocess is None:
+        import subprocess as module
+        subprocess = module
 
 # Output kept for the sketch per process. Past this we stop reading, and the
 # process blocks on its own writes until the sketch reads some (so streaming
@@ -18,6 +28,7 @@ MAX_BUFFERED = 256 * 1024
 
 class Proc:
     def __init__(self, args):
+        _load_subprocess()
         self.popen = subprocess.Popen(
             args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             # stderr used to be a pipe nobody read, which could hang the

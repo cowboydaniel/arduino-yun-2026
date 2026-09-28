@@ -6,7 +6,7 @@
 # BridgeServer and YunServer.
 
 import errno
-import logging
+import bridgelog
 import os
 import select
 import socket
@@ -21,7 +21,7 @@ except ImportError:
     ssl = None
     WOULD_BLOCK = (BlockingIOError,)
 
-log = logging.getLogger('bridge')
+log = bridgelog.getLogger()
 
 MAX_RXBUF = 1024
 CA_PATH = '/etc/ssl/certs'

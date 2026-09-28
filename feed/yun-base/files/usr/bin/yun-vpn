@@ -1,0 +1,144 @@
+#!/bin/sh
+# WireGuard VPN: connect the Yun to a WireGuard server (a home router, a
+# VPS, a VPN service), so you can reach it from anywhere through that VPN.
+#
+#   yun-vpn import <file>   set it up from a WireGuard config file, the kind
+#                           a phone app imports ([Interface] and [Peer])
+#   yun-vpn on | off        turn it on or off, keeping the settings
+#   yun-vpn remove          forget it
+#
+# The Yun keeps the tunnel alive (PersistentKeepalive 25 unless the file
+# says otherwise), so the server can reach it behind a home router. The
+# VPN counts as the Yun's outside network in the firewall, which accepts
+# connections there, as it does on Ethernet and Wi-Fi.
+#
+# Needs wireguard-tools and kmod-wireguard (the panel installs them).
+
+IFACE=yunvpn
+PEER=yunvpn_server
+
+die() {
+	echo "yun-vpn: $*" >&2
+	exit 1
+}
+
+is_key() {
+	echo "$1" | grep -qE '^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$'
+}
+
+is_cidr() {
+	echo "$1" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}(/[0-9]{1,2})?$|^[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*(/[0-9]{1,3})?$'
+}
+
+# The wan zone, where the firewall accepts incoming connections.
+wan_zone() {
+	local i=0 name
+	while name=$(uci -q get firewall.@zone[$i].name); do
+		[ "$name" = wan ] && { echo "firewall.@zone[$i]"; return; }
+		i=$((i + 1))
+	done
+}
+
+reload() {
+	uci commit network
+	uci commit firewall
+	/etc/init.d/network reload 2>/dev/null
+	/etc/init.d/firewall reload 2>/dev/null
+	return 0
+}
+
+forget() {
+	local zone
+	uci -q delete network.$IFACE
+	uci -q delete network.$PEER
+	zone=$(wan_zone)
+	[ -n "$zone" ] && uci -q del_list $zone.network=$IFACE
+}
+
+case "$1" in
+import)
+	[ -r "$2" ] || die "can't read ${2:-the config file}"
+	# One "section key value" line per setting; comments and blank lines
+	# dropped, keys lowercased, values with their spaces around commas
+	# removed.
+	settings=$(awk '
+		{ sub(/[#;].*/, ""); gsub(/\r/, "") }
+		/^[ \t]*\[/ { s = tolower($0); gsub(/[][ \t]/, "", s); if (s == "peer") peers++; next }
+		/=/ {
+			k = $0; sub(/=.*/, "", k); gsub(/[ \t]/, "", k)
+			v = $0; sub(/^[^=]*=/, "", v); gsub(/[ \t]/, "", v)
+			if (k != "" && v != "") print (s == "peer" ? "peer" peers : s), tolower(k), v
+		}
+		END { print "count", "peers", peers + 0 }' "$2")
+
+	privkey= addresses= mtu= port= pubkey= psk= allowed= endpoint= keepalive= peers=0
+	while read -r section key value; do
+		case "$section.$key" in
+		interface.privatekey) privkey=$value ;;
+		interface.address) addresses="$addresses $(echo "$value" | tr , ' ')" ;;
+		interface.mtu) mtu=$value ;;
+		interface.listenport) port=$value ;;
+		peer1.publickey) pubkey=$value ;;
+		peer1.presharedkey) psk=$value ;;
+		peer1.allowedips) allowed="$allowed $(echo "$value" | tr , ' ')" ;;
+		peer1.endpoint) endpoint=$value ;;
+		peer1.persistentkeepalive) keepalive=$value ;;
+		count.peers) peers=$value ;;
+		esac
+	done <<-EOF
+	$settings
+	EOF
+
+	[ "$peers" = 1 ] || die "the file must have exactly one [Peer] (the server); it has $peers"
+	is_key "$privkey" || die "missing or invalid PrivateKey in [Interface]"
+	is_key "$pubkey" || die "missing or invalid PublicKey in [Peer]"
+	[ -z "$psk" ] || is_key "$psk" || die "invalid PresharedKey"
+	[ -n "$addresses" ] || die "missing Address in [Interface]"
+	for a in $addresses; do is_cidr "$a" || die "invalid Address $a"; done
+	[ -n "$allowed" ] || die "missing AllowedIPs in [Peer]"
+	for a in $allowed; do is_cidr "$a" || die "invalid AllowedIPs $a"; done
+	case "$endpoint" in
+	\[*\]:*) host=${endpoint%]:*}; host=${host#[}; eport=${endpoint##*]:} ;;
+	*:*) host=${endpoint%:*}; eport=${endpoint##*:} ;;
+	*) die "missing or invalid Endpoint in [Peer] (host:port): the Yun has to know where the server is" ;;
+	esac
+	echo "$host" | grep -qE '^[A-Za-z0-9.:-]+$' || die "invalid Endpoint host $host"
+	for n in "$eport" ${mtu:+"$mtu"} ${port:+"$port"} ${keepalive:+"$keepalive"}; do
+		case "$n" in ''|*[!0-9]*) die "invalid number $n" ;; esac
+	done
+
+	forget
+	uci set network.$IFACE=interface
+	uci set network.$IFACE.proto=wireguard
+	uci set network.$IFACE.private_key="$privkey"
+	for a in $addresses; do uci add_list network.$IFACE.addresses="$a"; done
+	[ -n "$mtu" ] && uci set network.$IFACE.mtu="$mtu"
+	[ -n "$port" ] && uci set network.$IFACE.listen_port="$port"
+	uci set network.$PEER=wireguard_$IFACE
+	uci set network.$PEER.description=server
+	uci set network.$PEER.public_key="$pubkey"
+	[ -n "$psk" ] && uci set network.$PEER.preshared_key="$psk"
+	for a in $allowed; do uci add_list network.$PEER.allowed_ips="$a"; done
+	uci set network.$PEER.route_allowed_ips=1
+	uci set network.$PEER.endpoint_host="$host"
+	uci set network.$PEER.endpoint_port="$eport"
+	uci set network.$PEER.persistent_keepalive="${keepalive:-25}"
+	zone=$(wan_zone)
+	[ -n "$zone" ] && uci add_list $zone.network=$IFACE
+	reload
+	echo "yun-vpn: connecting to $host:$eport"
+	;;
+on|off)
+	uci -q get network.$IFACE >/dev/null || die "no VPN is set up (yun-vpn import <file>)"
+	if [ "$1" = on ]; then uci -q delete network.$IFACE.disabled; else uci set network.$IFACE.disabled=1; fi
+	reload
+	;;
+remove)
+	forget
+	reload
+	;;
+*)
+	sed -n '2,/^$/s/^# \{0,1\}//p' "$0" >&2
+	exit 2
+	;;
+esac

@@ -4,11 +4,11 @@
 #
 # UDP sockets for the sketch (BridgeUDP).
 
-import logging
+import bridgelog
 import select
 import socket
 
-log = logging.getLogger('bridge')
+log = bridgelog.getLogger()
 
 MAX_QUEUED = 32
 

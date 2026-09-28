@@ -9,6 +9,20 @@
 #       Join an existing network (encryption: none, psk2, psk-mixed, sae,
 #       sae-mixed, ...). Falls back to the setup access point at boot if it
 #       can't connect; see /etc/init.d/yun-wifi.
+#   yun-wifi client-eap <ssid> <encryption> <eap> <phase2> <identity> <password> [<anonymous identity> [<domain>]]
+#       Join a WPA2/WPA3-Enterprise network such as eduroam (encryption:
+#       wpa2, wpa3-mixed or wpa3; eap: peap or ttls; phase2: MSCHAPV2, PAP
+#       and so on). With a domain (e.g. radius.example.edu), the network's
+#       server must have a certificate for it from a known authority, which
+#       stops a fake network collecting the password; without one it isn't
+#       checked.
+#   yun-wifi direct on <password> | off
+#       While the Yun is a client, also keep its own network up, with a
+#       password (WPA2), at 192.168.240.1: a way in from a phone or laptop
+#       when the main network doesn't let devices reach each other (school
+#       and work networks often don't). It shares the main network's
+#       channel, so it's there while the Yun is connected; if the network
+#       is gone at boot, the open setup network takes over as usual.
 #   yun-wifi status
 #       Print the current role: ap, client or fallback.
 #   yun-wifi ssid
@@ -37,6 +51,23 @@ yun_state() {
 	uci -q get arduino.@arduino[0].wifi_state || echo ap
 }
 
+direct_on() {
+	[ "$(uci -q get arduino.@arduino[0].direct_ap)" = 1 ] &&
+		[ -n "$(uci -q get arduino.@arduino[0].direct_ap_key)" ]
+}
+
+# The access point's security for the role: the setup network is open, the
+# direct network next to the client has the password.
+ap_security() {
+	if [ "$(yun_state)" = client ] && direct_on; then
+		uci set wireless.yun_ap.encryption=psk2
+		uci set wireless.yun_ap.key="$(uci -q get arduino.@arduino[0].direct_ap_key)"
+	else
+		uci set wireless.yun_ap.encryption=none
+		uci -q delete wireless.yun_ap.key
+	fi
+}
+
 set_state() {
 	uci -q set arduino.@arduino[0].wifi_state="$1"
 }
@@ -53,9 +84,29 @@ apply() {
 	return 0
 }
 
+# The client's security settings, so a change of type leaves nothing behind.
+clear_sta_auth() {
+	local o
+	for o in key eap_type auth identity password anonymous_identity \
+		ca_cert_usesystem domain_suffix_match ieee80211w; do
+		uci -q delete wireless.yun_sta.$o
+	done
+}
+
+use_client() {
+	uci set wireless.yun_sta.disabled=0
+	set_state client
+	if direct_on; then uci set wireless.yun_ap.disabled=0; else uci set wireless.yun_ap.disabled=1; fi
+	ap_security
+	yun-led wlan default 2>/dev/null
+	apply
+}
+
 use_ap() {
 	uci set wireless.yun_ap.disabled=0
 	uci set wireless.yun_ap.ssid="$(ap_ssid)"
+	uci set wireless.yun_ap.encryption=none
+	uci -q delete wireless.yun_ap.key
 	uci set wireless.yun_sta.disabled=1
 	uci set network.lan.ipaddr="$AP_ADDR"
 	uci set dhcp.lan.ignore=0
@@ -87,22 +138,52 @@ client)
 		echo "yun-wifi: encryption $enc needs a key" >&2
 		exit 1
 	fi
-	uci set wireless.yun_sta.disabled=0
+	clear_sta_auth
 	uci set wireless.yun_sta.ssid="$ssid"
 	uci set wireless.yun_sta.encryption="$enc"
-	uci -q delete wireless.yun_sta.key
 	[ "$enc" != none ] && uci set wireless.yun_sta.key="$key"
-	uci set wireless.yun_ap.disabled=1
-	set_state client
-	yun-led wlan default 2>/dev/null
-	apply
+	use_client
+	;;
+client-eap)
+	ssid=$2 enc=$3 eap=$4 phase2=$5 identity=$6 password=$7 anon=$8 domain=$9
+	case "$enc" in
+	wpa|wpa2|wpa3|wpa3-mixed) ;;
+	*) echo "yun-wifi: $enc isn't an Enterprise security type (wpa2, wpa3-mixed, wpa3)" >&2; exit 1 ;;
+	esac
+	case "$eap" in
+	peap|ttls) ;;
+	*) echo "yun-wifi: EAP method $eap isn't supported (peap, ttls)" >&2; exit 1 ;;
+	esac
+	if [ -z "$ssid" ] || [ -z "$identity" ] || [ -z "$password" ]; then
+		echo "usage: yun-wifi client-eap <ssid> <encryption> <eap> <phase2> <identity> <password> [<anonymous identity> [<domain>]]" >&2
+		exit 1
+	fi
+	clear_sta_auth
+	uci set wireless.yun_sta.ssid="$ssid"
+	uci set wireless.yun_sta.encryption="$enc"
+	uci set wireless.yun_sta.eap_type="$eap"
+	uci set wireless.yun_sta.auth="${phase2:-MSCHAPV2}"
+	uci set wireless.yun_sta.identity="$identity"
+	uci set wireless.yun_sta.password="$password"
+	[ -n "$anon" ] && uci set wireless.yun_sta.anonymous_identity="$anon"
+	if [ -n "$domain" ]; then
+		uci set wireless.yun_sta.ca_cert_usesystem=1
+		uci set wireless.yun_sta.domain_suffix_match="$domain"
+	fi
+	# WPA3 needs management frame protection; WPA2/WPA3 offers it.
+	case "$enc" in
+	wpa3) uci set wireless.yun_sta.ieee80211w=2 ;;
+	wpa3-mixed) uci set wireless.yun_sta.ieee80211w=1 ;;
+	esac
+	use_client
 	;;
 retry)
 	# At boot after a fallback: try the client settings again.
 	[ "$(uci -q get arduino.@arduino[0].wifi_state)" = fallback ] || exit 0
 	uci set wireless.yun_sta.disabled=0
-	uci set wireless.yun_ap.disabled=1
 	set_state client
+	if direct_on; then uci set wireless.yun_ap.disabled=0; else uci set wireless.yun_ap.disabled=1; fi
+	ap_security
 	uci commit wireless
 	uci commit arduino
 	;;
@@ -114,16 +195,52 @@ sync)
 	# other way round. Anything else (an update that rewrote the sections,
 	# a hand edit) is put back to what the saved role says.
 	uci -q get wireless.yun_sta >/dev/null && uci -q get wireless.yun_ap >/dev/null || exit 0
-	if [ "$(yun_state)" = client ]; then sta=0 ap=1; else sta=1 ap=0; fi
+	if [ "$(yun_state)" = client ]; then
+		sta=0 ap=1 enc=none
+		direct_on && ap=0 enc=psk2
+	else
+		sta=1 ap=0 enc=none
+	fi
 	[ "$(uci -q get wireless.yun_sta.disabled)" = $sta ] &&
 		[ "$(uci -q get wireless.yun_ap.disabled)" = $ap ] &&
+		[ "$(uci -q get wireless.yun_ap.encryption || echo none)" = $enc ] &&
 		[ "$(uci -q get wireless.radio0.disabled)" != 1 ] && exit 0
 	logger -t yun "Wi-Fi didn't match its saved role ($(yun_state)); putting it right"
 	uci set wireless.yun_sta.disabled=$sta
 	uci set wireless.yun_ap.disabled=$ap
+	ap_security
 	uci set wireless.radio0.disabled=0
 	uci commit wireless
 	[ "$2" = --no-reload ] || wifi reload
+	;;
+direct)
+	case "$2" in
+	on)
+		key=$3
+		[ ${#key} -ge 8 ] && [ ${#key} -le 63 ] || {
+			echo "yun-wifi: the direct network needs a password of 8 to 63 characters" >&2
+			exit 1
+		}
+		uci set arduino.@arduino[0].direct_ap=1
+		uci set arduino.@arduino[0].direct_ap_key="$key"
+		;;
+	off)
+		uci set arduino.@arduino[0].direct_ap=0
+		uci -q delete arduino.@arduino[0].direct_ap_key
+		;;
+	*)
+		echo "usage: yun-wifi direct on <password> | off" >&2
+		exit 1
+		;;
+	esac
+	if [ "$(yun_state)" = client ]; then
+		if direct_on; then uci set wireless.yun_ap.disabled=0; else uci set wireless.yun_ap.disabled=1; fi
+		ap_security
+		uci set wireless.yun_ap.ssid="$(ap_ssid)"
+	fi
+	uci commit arduino
+	uci commit wireless
+	wifi reload
 	;;
 status)
 	yun_state

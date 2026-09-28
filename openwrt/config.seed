@@ -1,3 +1,33 @@
 CONFIG_TARGET_ath79=y
 CONFIG_TARGET_ath79_generic=y
 CONFIG_TARGET_ath79_generic_DEVICE_arduino_yun-2026=y
+# Not used on a Yun, which joins networks rather than routing for them:
+# PPP/PPPoE (DSL uplinks), the IPv6 router service, and uboot-envtools
+# (its partition is read-only here, and it only complained at boot).
+# CONFIG_PACKAGE_ppp is not set
+# CONFIG_PACKAGE_ppp-mod-pppoe is not set
+# CONFIG_PACKAGE_odhcpd-ipv6only is not set
+# CONFIG_PACKAGE_uboot-envtools is not set
+# The kernel is configured exactly like OpenWrt's official ath79/generic
+# build (its config.buildinfo: defaults, plus KALLSYMS off and every kernel
+# module built), so its version string matches theirs and any kmod-* from
+# downloads.openwrt.org installs with apk: USB serial adapters, webcams,
+# audio, Wi-Fi and Ethernet dongles, Bluetooth, WireGuard... Don't change
+# CONFIG_KERNEL_* options or kernel modules here without checking
+# tests/test_config.py and the vermagic check in scripts/build.sh.
+CONFIG_ALL_KMODS=y
+# CONFIG_KERNEL_KALLSYMS is not set
+# The official build also has these, which change the kernel's config:
+# DEVEL (it allows kmod-usb-test) and three RTC drivers that some other
+# ath79 boards include (they turn on the kernel's RTC support, a few KB).
+# All are built as packages only; none of them goes into the Yun's image.
+CONFIG_DEVEL=y
+CONFIG_PACKAGE_kmod-rtc-ds1307=m
+CONFIG_PACKAGE_kmod-rtc-ds1374=m
+CONFIG_PACKAGE_kmod-rtc-pcf8563=m
+# The "arduino" packages are in the image, not on downloads.openwrt.org:
+# don't list a feed there that doesn't exist (apk update would fail).
+# CONFIG_FEED_arduino is not set
+# urngd feeds the kernel random number generator, which since Linux 5.18
+# seeds itself (jitter entropy): one less daemon in RAM.
+# CONFIG_PACKAGE_urngd is not set

@@ -297,6 +297,198 @@ exit ${SYSUPGRADE_EXIT:-0}
 '''
 
 
+class SdSwapTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        t = self.tmp.name
+        b = os.path.join(t, 'bin')
+        os.makedirs(b)
+        self.calls = os.path.join(t, 'calls')
+        self.proc = os.path.join(t, 'proc')
+        os.makedirs(self.proc)
+        self.card = os.path.join(t, 'card')
+        os.makedirs(self.card)
+        self.swapfile = os.path.join(self.card, 'yun-swapfile')
+        fakes = {
+            'uci': '#!/bin/sh\ncase "$3" in\n*sd_swap) printf %s "$SD_SWAP" ;;\n*sd_swap_size) printf %s "$SD_SWAP_SIZE" ;;\nesac\n',
+            'mkswap': '#!/bin/sh\necho "mkswap $*" >> "$CALLS"\n',
+            'swapon': '#!/bin/sh\necho "swapon $*" >> "$CALLS"\nprintf "%s file 1024 0 10\\n" "$3" >> "$PROC/swaps"\n',
+            'swapoff': '#!/bin/sh\necho "swapoff $*" >> "$CALLS"\n',
+            'logger': '#!/bin/sh\n',
+        }
+        for name, body in fakes.items():
+            with open(os.path.join(b, name), 'w') as f:
+                f.write(body)
+            os.chmod(os.path.join(b, name), 0o755)
+        self.bin = b
+        self.set_mounts(f'/dev/sda1 {self.card} vfat rw,relatime,fmask=0022 0 0')
+        with open(os.path.join(self.proc, 'swaps'), 'w') as f:
+            f.write('Filename\t\t\t\tType\t\tSize\t\tUsed\t\tPriority\n/dev/zram0 partition 27808 0 100\n')
+        self.env = dict(os.environ, PATH=b + os.pathsep + os.environ['PATH'], PROC=self.proc,
+                        CALLS=self.calls, SD_SWAP='', SD_SWAP_SIZE='1', YUN_SDSWAP_WAIT='0')
+
+    def set_mounts(self, *lines):
+        with open(os.path.join(self.proc, 'mounts'), 'w') as f:
+            f.write('/dev/root /rom squashfs ro,relatime 0 0\ntmpfs /tmp tmpfs rw,nosuid,nodev 0 0\n')
+            f.write(''.join(l + '\n' for l in lines))
+
+    def sdswap(self, *args, **env):
+        return subprocess.run(['sh', os.path.join(FILES, 'usr', 'bin', 'yun-sdswap'), *args],
+                              capture_output=True, text=True, env=dict(self.env, **env), timeout=20)
+
+    def recorded(self):
+        try:
+            with open(self.calls) as f:
+                return f.read().splitlines()
+        except FileNotFoundError:
+            return []
+
+    def test_boot_makes_and_uses_a_swap_file(self):
+        p = self.sdswap('wait')
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(os.path.getsize(self.swapfile), 1048576)
+        self.assertEqual(stat.S_IMODE(os.stat(self.swapfile).st_mode), 0o600)
+        self.assertEqual(self.recorded(), [f'mkswap {self.swapfile}', f'swapon -p 10 {self.swapfile}'])
+        self.assertIn(f'swapping to {self.swapfile}', self.sdswap('status').stdout)
+
+    def test_default_size_is_256_mb(self):
+        with open(os.path.join(self.bin, 'dd'), 'w') as f:
+            f.write('#!/bin/sh\necho "dd $*" >> "$CALLS"\nexit 1\n')
+        os.chmod(os.path.join(self.bin, 'dd'), 0o755)
+        with open(os.path.join(self.bin, 'df'), 'w') as f:
+            f.write('#!/bin/sh\necho "Filesystem 1024-blocks Used Available Capacity Mounted on"\n'
+                    'echo "/dev/sda1 60000000 1000 59999000 1% /mnt/sda1"\n')
+        os.chmod(os.path.join(self.bin, 'df'), 0o755)
+        p = self.sdswap('start', SD_SWAP_SIZE='')
+        self.assertEqual(p.returncode, 1)
+        self.assertIn('making a 256 MB swap file', p.stdout)
+        self.assertIn('count=256', self.recorded()[0])
+        self.assertFalse(os.path.exists(self.swapfile + '.new'))
+
+    def test_existing_file_is_reused(self):
+        with open(self.swapfile, 'wb') as f:
+            f.write(b'S' * 1048576)
+        self.sdswap('start')
+        with open(self.swapfile, 'rb') as f:
+            self.assertEqual(f.read(1), b'S')      # not written again
+        self.assertEqual(self.recorded(), [f'mkswap {self.swapfile}', f'swapon -p 10 {self.swapfile}'])
+
+    def test_file_of_another_size_is_replaced(self):
+        with open(self.swapfile, 'wb') as f:
+            f.write(b'S' * 4096)
+        self.sdswap('start', SD_SWAP_SIZE='2')
+        self.assertEqual(os.path.getsize(self.swapfile), 2 * 1048576)
+
+    def test_already_swapping(self):
+        self.sdswap('start')
+        self.assertEqual(self.sdswap('start').returncode, 0)
+        self.assertEqual(len(self.recorded()), 2)
+
+    def test_no_card(self):
+        self.set_mounts()
+        p = self.sdswap('wait')
+        self.assertEqual(p.returncode, 0)
+        self.assertEqual(self.recorded(), [])
+        self.assertIn('no SD card', self.sdswap('start').stdout)
+
+    def test_only_writable_card_filesystems(self):
+        self.set_mounts(f'/dev/sda1 {self.card} vfat ro,relatime 0 0',
+                        f'/dev/sdb1 {self.card} iso9660 rw 0 0',
+                        f'/dev/mtdblock6 {self.card} jffs2 rw 0 0')
+        self.assertEqual(self.sdswap('start').returncode, 1)
+        self.assertEqual(self.recorded(), [])
+        self.set_mounts(f'/dev/sda2 {self.card} exfat rw,relatime 0 0')
+        self.assertEqual(self.sdswap('start').returncode, 0)
+
+    def test_not_enough_space(self):
+        with open(os.path.join(self.bin, 'df'), 'w') as f:
+            f.write('#!/bin/sh\necho "Filesystem 1024-blocks Used Available Capacity Mounted on"\n'
+                    'echo "/dev/sda1 100000 99000 1000 99% /mnt/sda1"\n')
+        os.chmod(os.path.join(self.bin, 'df'), 0o755)
+        p = self.sdswap('wait')
+        self.assertEqual(p.returncode, 0)
+        self.assertIn('not enough space', p.stdout)
+        self.assertFalse(os.path.exists(self.swapfile))
+        self.assertEqual(self.recorded(), [])
+
+    def test_turned_off(self):
+        p = self.sdswap('wait', SD_SWAP='0')
+        self.assertEqual(self.recorded(), [])
+        self.assertFalse(os.path.exists(self.swapfile))
+
+    def test_slow_card_is_waited_for(self):
+        # Cards like a 64 GB one appear most of a minute after boot.
+        self.set_mounts()
+        with open(os.path.join(self.bin, 'sleep'), 'w') as f:
+            f.write(f'#!/bin/sh\nprintf "/dev/sda1 {self.card} vfat rw,relatime 0 0\\n" >> "$PROC/mounts"\n')
+        os.chmod(os.path.join(self.bin, 'sleep'), 0o755)
+        p = self.sdswap('wait', YUN_SDSWAP_WAIT='120')
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(self.recorded(), [f'mkswap {self.swapfile}', f'swapon -p 10 {self.swapfile}'])
+
+    def test_stop(self):
+        self.sdswap('start')
+        self.assertEqual(self.sdswap('stop').returncode, 0)
+        self.assertEqual(self.recorded()[-1], f'swapoff {self.swapfile}')
+
+
+class SdHotplugTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        t = self.tmp.name
+        self.proc = os.path.join(t, 'proc')
+        self.mnt = os.path.join(t, 'mnt')
+        os.makedirs(self.proc)
+        os.makedirs(self.mnt)
+        os.symlink('/mnt/sda1', os.path.join(self.mnt, 'sd'))     # as installed
+        self.calls = os.path.join(t, 'calls')
+        self.block = os.path.join(t, 'block')
+        # Like "block hotplug": mount the device it's told about.
+        with open(self.block, 'w') as f:
+            f.write('#!/bin/sh\necho "block $* $ACTION $DEVNAME" >> "$CALLS"\n'
+                    '[ "$ACTION" = add ] && echo "/dev/$DEVNAME $MNT/$DEVNAME ext4 rw 0 0" >> "$PROC/mounts"\n')
+        os.chmod(self.block, 0o755)
+        with open(os.path.join(self.proc, 'mounts'), 'w') as f:
+            f.write('/dev/root /rom squashfs ro 0 0\n')
+
+    def hotplug(self, **env):
+        return subprocess.run(['sh', os.path.join(FILES, 'etc', 'hotplug.d', 'block', '20-yun-sd')],
+                              capture_output=True, text=True,
+                              env=dict(os.environ, BLOCK=self.block, PROC=self.proc, MNT=self.mnt,
+                                       CALLS=self.calls, **env))
+
+    def sd(self):
+        return os.readlink(os.path.join(self.mnt, 'sd'))
+
+    def recorded(self):
+        try:
+            with open(self.calls) as f:
+                return f.read().splitlines()
+        except FileNotFoundError:
+            return []
+
+    def test_late_card_without_partitions_is_mounted(self):
+        self.hotplug(ACTION='change', DISK_MEDIA_CHANGE='1', DEVTYPE='disk', DEVNAME='sda')
+        self.assertEqual(self.recorded(), ['block hotplug add sda'])
+        self.assertEqual(self.sd(), os.path.join(self.mnt, 'sda'))
+
+    def test_partition_mounted_by_10_mount(self):
+        with open(os.path.join(self.proc, 'mounts'), 'a') as f:
+            f.write('/dev/sda1 /mnt/sda1 vfat rw 0 0\n')
+        self.hotplug(ACTION='add', DEVTYPE='partition', DEVNAME='sda1')
+        self.assertEqual(self.recorded(), [])
+        self.assertEqual(self.sd(), '/mnt/sda1')
+
+    def test_other_devices_and_events_are_ignored(self):
+        self.hotplug(ACTION='change', DISK_MEDIA_CHANGE='1', DEVTYPE='disk', DEVNAME='mtdblock6')
+        self.hotplug(ACTION='change', DEVTYPE='disk', DEVNAME='sda')
+        self.hotplug(ACTION='remove', DEVTYPE='disk', DEVNAME='sda')
+        self.assertEqual(self.recorded(), [])
+        self.assertEqual(self.sd(), '/mnt/sda1')
+
+
 class YunUpdateTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -349,15 +541,31 @@ class YunUpdateTest(unittest.TestCase):
         self.assertIn('"available":false', self.update('check', '--json').stdout)
         self.assertIn('Up to date', self.update('check').stdout)
 
+    def stage(self):
+        with open('/tmp/yun-update/stage') as f:
+            return f.read().strip()
+
     def test_apply_frees_memory_then_installs(self):
         p = self.update('apply')
         self.assertEqual(p.returncode, 0, p.stderr)
+        # The web panel stays up to show the progress; sysupgrade's own hook
+        # stops it before writing the flash.
         self.assertEqual(self.recorded(), [
-            'uhttpd stop', 'rpcd stop', 'umdns stop', 'cron stop', 'odhcpd stop',
+            'umdns stop', 'cron stop', 'odhcpd stop',
             'sysupgrade -T /tmp/yun-update/sysupgrade.bin',
             'dnsmasq stop',        # only after the download, which needs DNS
             'sysupgrade -v /tmp/yun-update/sysupgrade.bin'])
         self.assertIn('download verified', p.stdout)
+        self.assertEqual(self.stage(), 'installing')
+        with open('/tmp/yun-update/total') as f:
+            self.assertEqual(f.read().strip(), '11862289')
+
+    def test_tight_memory_stops_the_web_panel_too(self):
+        self.set_memory(16000)     # 11584 KB image + 5120 KB margin needed
+        p = self.update('apply')
+        calls = self.recorded()
+        self.assertEqual(calls[:5], ['umdns stop', 'cron stop', 'odhcpd stop', 'uhttpd stop', 'rpcd stop'])
+        self.assertIn('stopping the web panel', p.stdout)
 
     def test_not_enough_memory(self):
         self.set_memory(12000)
@@ -366,7 +574,8 @@ class YunUpdateTest(unittest.TestCase):
         self.assertIn('not enough free RAM', p.stderr)
         calls = self.recorded()
         self.assertFalse(any(c.startswith('sysupgrade') for c in calls))
-        self.assertEqual(calls[-5:], ['uhttpd start', 'rpcd start', 'umdns start', 'cron start', 'odhcpd start'])
+        self.assertEqual(calls[-5:], ['umdns start', 'cron start', 'odhcpd start', 'uhttpd start', 'rpcd start'])
+        self.assertEqual(self.stage(), 'failed')
 
     def test_damaged_download_is_not_installed(self):
         p = self.update('apply', IMAGE_DATA='DAMAGED')
@@ -374,7 +583,9 @@ class YunUpdateTest(unittest.TestCase):
         self.assertIn('damaged', p.stderr)
         calls = self.recorded()
         self.assertFalse(any(c.startswith('sysupgrade') for c in calls))
-        self.assertIn('uhttpd start', calls)             # the panel comes back
+        self.assertNotIn('uhttpd stop', calls)           # the panel stayed up to show it
+        self.assertIn('odhcpd start', calls)
+        self.assertEqual(self.stage(), 'failed')
         self.assertFalse(os.path.exists('/tmp/yun-update/sysupgrade.bin'))
 
     def test_failed_sysupgrade_restarts_services(self):
@@ -382,4 +593,4 @@ class YunUpdateTest(unittest.TestCase):
         self.assertEqual(p.returncode, 1)
         calls = self.recorded()
         self.assertIn('dnsmasq start', calls)
-        self.assertIn('uhttpd start', calls)
+        self.assertIn('umdns start', calls)

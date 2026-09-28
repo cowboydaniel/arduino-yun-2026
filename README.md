@@ -7,7 +7,12 @@ Modern OpenWrt for the Arduino Yún, with updates and all the old Arduino stuff.
 - OpenWrt 25.12 with a current kernel, installed **in place** from the stock Linino firmware with its own updater. No serial cable, U-Boot prompt or TFTP needed, and U-Boot is never touched. [How it works](docs/design.md).
 - The Bridge library's Linux side, ported to Python 3: existing sketches run unchanged.
 - Uploading sketches over Wi-Fi from the Arduino IDE, or from the web panel.
-- A new web panel: status, Wi-Fi setup, drag and drop sketch upload, the live datastore, settings and firmware updates.
+- About 4.3 MB of flash free for settings and packages, 1.2 MB more than before 2026.4, with nothing left out: the space after the boot loader is used too.
+- An SD card is mounted at `/mnt/sd` like on stock, and if one turns up within two minutes of the end of boot, a 256 MB swap file on it gives the 64 MB board room to breathe. Run `yun-sdswap stop` before taking the card out; turn it off with `uci set arduino.@arduino[0].sd_swap=0`.
+- A new web panel: status, Wi-Fi setup, drag and drop sketch upload, the live datastore, a terminal for running Linux commands from any browser (phones too), settings, and firmware updates you can follow as they download.
+- Wi-Fi with WPA3, and WPA2/WPA3-Enterprise networks such as eduroam. The Yún's own network can stay on, with a password, next to the network it joins.
+- USB devices listed in the panel, with drivers one tap away: the kernel is built like OpenWrt's official one, so any `kmod-*` from downloads.openwrt.org installs (webcams, sound cards, Bluetooth, USB Ethernet, 5 GHz Wi-Fi dongles). Arduinos and USB serial adapters work out of the box.
+- WireGuard VPN from the panel: paste the config your router or VPN service gives you and reach the Yún from anywhere.
 - The stock REST API (`/arduino`, `/data`, `/mailbox`), the WLAN RST button, the setup access point, and keeping your settings when moving from stock.
 
 ## Installing from the stock firmware
@@ -38,7 +43,7 @@ The stock firmware's SSH server is old. Recent OpenSSH clients need `-o KexAlgor
 
 ## Updating
 
-On Yún 2026, `yun-update check` looks for a newer release, and `yun-update apply` downloads, verifies and installs it, keeping your settings. The web panel's **Settings → Firmware** does the same. Packages you added with `apk` aren't kept across an update.
+On Yún 2026, `yun-update check` looks for a newer release, and `yun-update apply` downloads, verifies and installs it, keeping your settings. The web panel's **Settings → Firmware** does the same, and shows the download's progress and when the Yún is back on the new version. Packages you added with `apk` aren't kept across an update.
 
 ## Layout
 

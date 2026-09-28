@@ -9,15 +9,14 @@
 # The CRC is CRC-CCITT (avr-libc _crc_ccitt_update) over every byte from the
 # 0xFF start byte to the end of the payload, starting from 0xFFFF.
 
-import logging
+import bridgelog
 import os
 import select
-import subprocess
 import termios
 import tty
 from contextlib import contextmanager
 
-log = logging.getLogger('bridge')
+log = bridgelog.getLogger()
 
 START = 0xFF
 BRIDGE_VERSION = b'161'
@@ -62,6 +61,7 @@ def run_hook(name):
     """Run an optional notification script such as /usr/bin/bridge-started."""
     path = '/usr/bin/' + name
     if os.access(path, os.X_OK):
+        import subprocess
         try:
             subprocess.call([path])
         except OSError as e:

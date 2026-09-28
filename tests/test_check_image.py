@@ -27,7 +27,8 @@ def pad_to(data, size, fill=b'\0'):
     return data + fill * (size - len(data))
 
 
-def build(pad_fill=b'\xff', loader_magic=0x27051956, kernel_magic=0x68737173, marker=b'\xde\xad\xc0\xde'):
+def build(pad_fill=b'\xff', loader_magic=0x27051956, kernel_magic=0x68737173, marker=b'\xde\xad\xc0\xde',
+          loader_size=20000, tail=True):
     kernel = uimage(os.urandom(200000), kernel_magic)
     img = pad_to(kernel, (len(kernel) + 0xffff) // 0x10000 * 0x10000)
     squash_used = 300000
@@ -37,7 +38,10 @@ def build(pad_fill=b'\xff', loader_magic=0x27051956, kernel_magic=0x68737173, ma
     img = pad_to(img, (len(img) + 0xffff) // 0x10000 * 0x10000)
     img += marker + b'\0' * (0x10000 - 4)      # padjffs2 fills the marker's block
     img = pad_to(img, 0xe50000, pad_fill)
-    img += uimage(os.urandom(20000), loader_magic, name=b'loader')
+    img += uimage(os.urandom(loader_size), loader_magic, name=b'loader')
+    if tail:
+        img = pad_to(img, 0xe60000, b'\xff')
+        img = pad_to(img, 0xf90000, b'\xff')
     return gzip.compress(img)
 
 
@@ -67,6 +71,22 @@ class CheckImageTest(unittest.TestCase):
     def test_missing_loader(self):
         rc, out = self.run_check(build(loader_magic=0x12345678))
         self.assertEqual(rc, 1)
+
+    def test_old_image_without_the_erased_tail(self):
+        rc, out = self.run_check(build(tail=False))
+        self.assertEqual(rc, 1)
+        self.assertIn('FAIL  all 0xff up to nvram', out)
+
+    def test_loader_too_big(self):
+        rc, out = self.run_check(build(loader_size=70000))
+        self.assertEqual(rc, 1)
+        self.assertIn('FAIL  loader fits', out)
+
+    def test_free_space_counts_both_sides_of_the_loader(self):
+        rc, out = self.run_check(build())
+        self.assertIn('KB left for settings and packages (before and after the loader)', out)
+        kb = int(out.split(' KB left')[0].split()[-1])
+        self.assertGreater(kb, 14000)
 
     def test_missing_marker(self):
         rc, out = self.run_check(build(marker=b'\xff\xff\xff\xff'))

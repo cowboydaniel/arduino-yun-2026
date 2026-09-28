@@ -40,6 +40,7 @@
       <a href="#network" data-view="network" class="nav-link"><svg viewBox="0 0 24 24"><path d="M12 18.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3M2.1 8.6a14.5 14.5 0 0 1 19.8 0l-1.4 1.4a12.5 12.5 0 0 0-17 0zm3.5 3.5a9.5 9.5 0 0 1 12.8 0L17 13.5a7.5 7.5 0 0 0-10 0zm3.5 3.5a4.5 4.5 0 0 1 5.8 0l-1.4 1.4a2.5 2.5 0 0 0-3 0z"/></svg><span>Network</span></a>
       <a href="#sketch" data-view="sketch" class="nav-link"><svg viewBox="0 0 24 24"><path d="M9 3h6v2h2a2 2 0 0 1 2 2v2h2v2h-2v2h2v2h-2v2a2 2 0 0 1-2 2h-2v2h-2v-2h-2v2H9v-2H7a2 2 0 0 1-2-2v-2H3v-2h2v-2H3V9h2V7a2 2 0 0 1 2-2h2zm-2 4v10h10V7z"/></svg><span>Sketch</span></a>
       <a href="#bridge" data-view="bridge" class="nav-link"><svg viewBox="0 0 24 24"><path d="M7 7h10v2H7zm0 4h10v2H7zm0 4h6v2H7zM4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1m1 2v14h14V5z"/></svg><span>Bridge</span></a>
+      <a href="#terminal" data-view="terminal" class="nav-link"><svg viewBox="0 0 24 24"><path d="M4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1m1 2v14h14V5zm2.3 3.3L10.9 12l-3.6 3.7-1.4-1.4 2.2-2.3-2.2-2.3zM12 15h6v2h-6z"/></svg><span>Terminal</span></a>
       <a href="#settings" data-view="settings" class="nav-link"><svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8m0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4M10.7 2h2.6l.5 2.6 1.6.7 2.2-1.5 1.8 1.8-1.5 2.2.7 1.6 2.6.5v2.6l-2.6.5-.7 1.6 1.5 2.2-1.8 1.8-2.2-1.5-1.6.7-.5 2.6h-2.6l-.5-2.6-1.6-.7-2.2 1.5-1.8-1.8 1.5-2.2-.7-1.6-2.6-.5v-2.6l2.6-.5.7-1.6-1.5-2.2 1.8-1.8 2.2 1.5 1.6-.7z"/></svg><span>Settings</span></a>
       <div class="sidebar-foot">
         <button class="btn btn-ghost btn-block" id="logout">Sign out</button>
@@ -113,11 +114,21 @@
             <header class="card-head"><h2>Memory</h2><span class="muted small" id="mem-text"></span></header>
             <div class="meter"><span id="mem-bar"></span></div>
             <canvas class="spark" id="mem-spark" height="60" aria-label="Memory use over the last few minutes"></canvas>
+            <p class="muted small mem-swap" id="mem-swap" hidden></p>
           </article>
 
           <article class="card">
             <header class="card-head"><h2>Storage</h2></header>
             <div id="storage-list" class="storage-list"></div>
+          </article>
+
+          <article class="card span-2">
+            <header class="card-head">
+              <h2>USB devices</h2>
+              <span class="muted small">What's plugged into the USB port</span>
+            </header>
+            <ul class="usb-list" id="usb-list"><li class="muted">Looking…</li></ul>
+            <details class="log" id="usb-log-wrap" hidden><summary id="usb-log-title">Installing</summary><pre id="usb-log"></pre></details>
           </article>
 
           <article class="card span-2">
@@ -154,9 +165,30 @@
                   <option value="sae">WPA3 Personal</option>
                   <option value="psk-mixed">WPA/WPA2 Personal</option>
                   <option value="none">None (open)</option>
+                  <option value="wpa3-mixed">WPA2/WPA3 Enterprise (eduroam, school, work)</option>
+                  <option value="wpa2">WPA2 Enterprise</option>
+                  <option value="wpa3">WPA3 Enterprise</option>
                 </select>
               </label>
               <label class="field" id="join-key-field"><span>Password</span><input id="join-key" type="password" minlength="8" autocomplete="off"></label>
+              <div id="join-eap" hidden>
+                <label class="field"><span>Username</span><input id="join-identity" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="you@example.edu"></label>
+                <label class="field"><span>Password</span><input id="join-password" type="password" autocomplete="off"></label>
+                <div class="field-row">
+                  <label class="field"><span>Method</span>
+                    <select id="join-eap-type">
+                      <option value="peap">PEAP</option>
+                      <option value="ttls">TTLS</option>
+                    </select>
+                  </label>
+                  <label class="field"><span>Inner authentication</span>
+                    <select id="join-phase2"></select>
+                  </label>
+                </div>
+                <label class="field"><span>Server domain <span class="muted">(recommended)</span></span><input id="join-domain" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="radius.example.edu"></label>
+                <p class="muted small">The name on your organisation's login server certificate, from its Wi-Fi setup instructions. With it, the Yún only sends your password to that server; without it, a fake network with the same name could collect it.</p>
+                <label class="field"><span>Anonymous identity <span class="muted">(optional)</span></span><input id="join-anon" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="anonymous@example.edu"></label>
+              </div>
               <p class="muted small">The Yún will drop off this network while it switches. If it can't join within a minute after rebooting, it goes back to setup mode.</p>
               <div class="card-actions">
                 <button class="btn btn-primary" type="submit">Join</button>
@@ -168,6 +200,44 @@
             <header class="card-head"><h2>Setup mode</h2></header>
             <p class="muted">Turn the Yún back into an open access point called <strong id="ap-ssid">Arduino Yun</strong>, reachable at <code>192.168.240.1</code>. Holding WLAN RST for 5 seconds does the same.</p>
             <div class="card-actions"><button class="btn btn-danger" id="ap-btn">Switch to setup mode</button></div>
+          </article>
+          <article class="card">
+            <header class="card-head"><h2>Direct network</h2><span class="badge" id="direct-badge" hidden></span></header>
+            <p class="muted">Keep the Yún's own network, <strong id="direct-ssid">Arduino Yun</strong>, on while it's connected to yours, with a password. Join it from a phone or laptop and open <code>http://192.168.240.1</code>: handy on school and work networks, which often stop devices reaching each other.</p>
+            <form id="direct-form">
+              <label class="field"><span>Password</span><input id="direct-key" type="password" minlength="8" maxlength="63" autocomplete="new-password" placeholder="8 to 63 characters"></label>
+              <div class="card-actions">
+                <button class="btn btn-primary" type="submit" id="direct-on">Turn on</button>
+                <button class="btn" type="button" id="direct-off" hidden>Turn off</button>
+              </div>
+            </form>
+            <p class="muted small">It uses the same channel as your network, so it's there while the Yún is connected. If your network is gone at boot, the open setup network takes over as usual.</p>
+          </article>
+          <article class="card span-2" id="vpn-card">
+            <header class="card-head"><h2>VPN (WireGuard)</h2><span class="badge" id="vpn-badge" hidden></span></header>
+            <div id="vpn-install" hidden>
+              <p class="muted">Connect the Yún to a WireGuard VPN (on your home router, a server, or a VPN service) and reach it, this panel included, from anywhere you can reach that VPN.</p>
+              <div class="card-actions"><button class="btn btn-primary" type="button" id="vpn-install-btn">Install WireGuard</button></div>
+              <p class="muted small">Downloads about 150 KB from downloads.openwrt.org, so the Yún has to be online.</p>
+            </div>
+            <form id="vpn-form" hidden>
+              <p class="muted">Paste the WireGuard config for the Yún, or choose the file: the same kind of file a phone's WireGuard app imports. Make a new one for the Yún on your router's or VPN service's WireGuard page, with its own keys.</p>
+              <label class="field"><span>Config</span><textarea id="vpn-config" rows="9" spellcheck="false" autocapitalize="off" placeholder="[Interface]&#10;PrivateKey = ...&#10;Address = 10.8.0.5/32&#10;&#10;[Peer]&#10;PublicKey = ...&#10;AllowedIPs = 10.8.0.0/24&#10;Endpoint = vpn.example.com:51820"></textarea></label>
+              <div class="card-actions">
+                <button class="btn btn-primary" type="submit">Connect</button>
+                <label class="btn"><input type="file" id="vpn-file" accept=".conf,text/plain" hidden>Choose file</label>
+                <button class="btn btn-ghost" type="button" id="vpn-cancel" hidden>Cancel</button>
+              </div>
+            </form>
+            <div id="vpn-status" hidden>
+              <dl class="kv" id="vpn-kv"></dl>
+              <div class="card-actions">
+                <button class="btn" type="button" id="vpn-toggle">Turn off</button>
+                <button class="btn" type="button" id="vpn-replace">Use another config</button>
+                <button class="btn btn-danger" type="button" id="vpn-remove">Remove</button>
+              </div>
+            </div>
+            <details class="log" id="vpn-log-wrap" hidden><summary id="vpn-log-title">Installing</summary><pre id="vpn-log"></pre></details>
           </article>
           <article class="card">
             <header class="card-head"><h2>Ethernet</h2></header>
@@ -243,6 +313,29 @@
         </div>
       </section>
 
+      <!-- Terminal -->
+      <section class="view" data-view="terminal" hidden>
+        <article class="card term-card">
+          <header class="card-head">
+            <h2>Terminal</h2>
+            <div class="term-tools">
+              <button class="btn btn-ghost" type="button" id="term-wrap" aria-pressed="false" title="Wrap long lines">Wrap</button>
+              <button class="btn btn-ghost" type="button" id="term-clear">Clear</button>
+              <button class="btn btn-danger" type="button" id="term-stop" hidden>Stop</button>
+            </div>
+          </header>
+          <pre class="term" id="term-out" tabindex="0" aria-live="polite" aria-label="Command output"></pre>
+          <form class="term-form" id="term-form" autocomplete="off">
+            <label class="term-prompt" for="term-input"><span id="term-cwd">/root</span> #</label>
+            <input id="term-input" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send"
+                   placeholder="Type a Linux command" aria-label="Command">
+            <button class="btn btn-primary" type="submit" id="term-run">Run</button>
+          </form>
+          <div class="chips term-chips" id="term-chips"></div>
+          <p class="muted small">Commands run as <code>root</code> on the Yún, one at a time, and can't read input: use <code>top -bn1</code> rather than <code>top</code>, and <code>uci</code> or <code>sed</code> rather than an editor. ↑ and ↓ go through earlier commands. Output stops at 1 MB.</p>
+        </article>
+      </section>
+
       <!-- Settings -->
       <section class="view" data-view="settings" hidden>
         <div class="grid">
@@ -272,6 +365,11 @@
             <div class="card-actions">
               <button class="btn" id="fw-check">Check for updates</button>
               <button class="btn btn-primary" id="fw-apply" hidden>Install update</button>
+            </div>
+            <div class="progress" id="fw-progress" hidden>
+              <div class="progress-head"><span id="fw-step">Starting…</span><span id="fw-pct"></span></div>
+              <div class="meter"><span id="fw-bar"></span></div>
+              <p class="muted small" id="fw-note"></p>
             </div>
           </article>
           <article class="card">
