@@ -32,6 +32,16 @@ uci -q get network.wwan >/dev/null || uci -q batch <<-EOF2
 	set network.wwan=interface
 	set network.wwan.proto='dhcp'
 EOF2
+# Ethernet first, Wi-Fi second. Both get a default route from DHCP, and
+# with equal metrics only the first one up is installed (usually Wi-Fi),
+# so pulling the Wi-Fi left the Yun offline with the cable in. With these,
+# both routes stay: Ethernet is used while the cable is in, and Wi-Fi takes
+# over when it isn't (or the other way round). Boards updating from older
+# releases get them too; a metric someone set by hand is kept.
+for i in wan:10 wan6:10 wwan:20; do
+	uci -q get network.${i%:*} >/dev/null || continue
+	[ -n "$(uci -q get network.${i%:*}.metric)" ] || uci set network.${i%:*}.metric=${i#*:}
+done
 uci -q get dhcp.lan >/dev/null || uci -q batch <<-EOF2
 	set dhcp.lan=dhcp
 	set dhcp.lan.interface='lan'

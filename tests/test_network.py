@@ -138,6 +138,24 @@ class NetworkSetupTest(unittest.TestCase):
         self.run_script(storage)
         self.assertEqual(self.uci('fstab.@global[0].anon_mount'), '1')
 
+    def test_ethernet_is_the_preferred_route(self):
+        self.first_boot()
+        self.assertEqual(self.uci('network.wan.metric'), '10')
+        self.assertEqual(self.uci('network.wan6.metric'), '10')
+        self.assertEqual(self.uci('network.wwan.metric'), '20')
+
+    def test_route_metrics_on_update_keep_hand_set_ones(self):
+        # A board from 2026.3 or older: no metrics yet, one set by hand.
+        self.first_boot()
+        for key in ('wan.metric', 'wan6.metric'):
+            subprocess.run([UCI, '-c', self.conf, 'delete', f'network.{key}'], check=True)
+        subprocess.run([UCI, '-c', self.conf, 'set', 'network.wwan.metric=5'], check=True)
+        subprocess.run([UCI, '-c', self.conf, 'commit', 'network'], check=True)
+        self.first_boot()         # sysupgrade runs the uci-defaults again
+        self.assertEqual(self.uci('network.wan.metric'), '10')
+        self.assertEqual(self.uci('network.wan6.metric'), '10')
+        self.assertEqual(self.uci('network.wwan.metric'), '5')
+
     def test_first_boot_twice_is_harmless(self):
         self.first_boot()
         self.first_boot()
