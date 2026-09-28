@@ -1,0 +1,14 @@
+Build the linuxspi programmer: the Arduino Yun flashes its ATmega32U4 through
+/dev/spidev1.0, as its stock firmware did.
+
+--- a/CMakeLists.txt	2026-09-28 15:37:53.408965818 +1000
++++ b/CMakeLists.txt	2026-09-28 15:37:53.413831771 +1000
+@@ -28,7 +28,7 @@
+ 
+ option(BUILD_DOC "Enable building documents" OFF)
+ option(HAVE_LINUXGPIO "Enable Linux sysfs and libgpiod GPIO support" OFF)
+-option(HAVE_LINUXSPI "Enable Linux SPI support" OFF)
++option(HAVE_LINUXSPI "Enable Linux SPI support" ON)
+ option(HAVE_PARPORT "Enable parallel port support" OFF)
+ option(USE_EXTERNAL_LIBS "Use external libraries from AVRDUDE GitHub repositories" OFF)
+ option(USE_LIBUSBWIN32 "Prefer libusb-win32 over libusb" OFF)

@@ -97,11 +97,23 @@ class RunAvrdudeTest(unittest.TestCase):
         with open(self.hex, 'w') as f:
             f.write(':00000001FF\n')
         self.log = os.path.join(t, 'log')
+        # The ISP bus with spidev already bound, and the spi-gpio platform
+        # device that owns the pins.
+        os.makedirs(os.path.join(t, 'spi', 'devices', 'spi1.0', 'driver'))
+        os.makedirs(os.path.join(t, 'dev'))
+        with open(os.path.join(t, 'dev', 'spidev1.0'), 'w'):
+            pass
+        os.makedirs(os.path.join(t, 'platform', 'devices', 'spi-isp', 'driver'))
+        os.makedirs(os.path.join(t, 'platform', 'drivers', 'spi_gpio'))
 
-    def run_avrdude(self, *args, efuse='203'):
+    def run_avrdude(self, *args, efuse='203', isp=None):
+        t = self.tmp.name
         env = dict(os.environ, YUN_SHARE=os.path.join(FILES, 'usr', 'share', 'yun'),
-                   GPIO_SYSFS=os.path.join(self.tmp.name, 'gpio'), AVRDUDE_BIN=self.avrdude,
-                   LOG=self.log, EFUSE_READ=efuse)
+                   GPIO_SYSFS=os.path.join(t, 'gpio'), SPI_SYSFS=os.path.join(t, 'spi'),
+                   PLATFORM_SYSFS=os.path.join(t, 'platform'), DEV_DIR=os.path.join(t, 'dev'),
+                   AVRDUDE_BIN=self.avrdude, LOG=self.log, EFUSE_READ=efuse)
+        if isp:
+            env['YUN_ISP'] = isp
         p = subprocess.run([RUN_AVRDUDE, self.hex, *args], capture_output=True, text=True, env=env)
         try:
             with open(self.log) as f:
@@ -121,7 +133,9 @@ class RunAvrdudeTest(unittest.TestCase):
         self.assertIn('efuse:r:-:d', calls[0])
         flash = self.flash_call(calls)
         self.assertTrue(flash.startswith('spi=1 '), flash)     # level shifter on while flashing
-        self.assertIn('-c yun -P gpiochip0 -p m32u4', flash)
+        # As the stock firmware: linuxspi on the kernel's SPI bus 1.
+        dev = os.path.join(self.tmp.name, 'dev')
+        self.assertIn(f'-c yun-spi -P {dev}/spidev1.0:{dev}/gpiochip0 -x disable_no_cs -p m32u4', flash)
         self.assertIn('-U lfuse:w:0xff:m -U hfuse:w:0xd8:m', flash)
         self.assertNotIn('efuse:w', flash)                     # 0xCB is already right
         self.assertIn(f'-U flash:w:{self.hex}:i', flash)
@@ -157,6 +171,28 @@ class RunAvrdudeTest(unittest.TestCase):
     def test_missing_value(self):
         p, calls = self.run_avrdude('-p')
         self.assertEqual(p.returncode, 1)
+        self.assertEqual(calls, [])
+
+    def test_linuxgpio_fallback_releases_the_pins(self):
+        # YUN_ISP=gpio: avrdude bit-bangs the pins, so the SPI bus has to let
+        # go of them first and take them back afterwards.
+        t = self.tmp.name
+        # The fake sysfs can't unbind, so check the writes instead.
+        unbind = os.path.join(t, 'platform', 'drivers', 'spi_gpio', 'unbind')
+        bind = os.path.join(t, 'platform', 'drivers', 'spi_gpio', 'bind')
+        p, calls = self.run_avrdude('-q', '-q', isp='gpio')
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn('-c yun -P gpiochip0 -p m32u4', self.flash_call(calls))
+        with open(unbind) as f:
+            self.assertEqual(f.read().strip(), 'spi-isp')
+        self.assertFalse(os.path.exists(bind))   # still bound in the fake, so nothing to redo
+
+    def test_missing_isp_bus(self):
+        import shutil
+        shutil.rmtree(os.path.join(self.tmp.name, 'spi', 'devices', 'spi1.0'))
+        p, calls = self.run_avrdude()
+        self.assertEqual(p.returncode, 1)
+        self.assertIn('ISP bus', p.stderr)
         self.assertEqual(calls, [])
 
     def test_not_a_yun(self):

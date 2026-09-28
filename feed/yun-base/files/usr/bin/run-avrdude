@@ -6,6 +6,11 @@
 #
 # Options may also come as one quoted word, e.g. '-q -q', as in the stock
 # /etc/config/arduino.
+#
+# Like the stock firmware, it uses avrdude's linuxspi programmer on the
+# kernel's bit-banged SPI bus (/dev/spidev1.0) and resets the 32U4 with
+# GPIO 18. YUN_ISP=gpio uses avrdude's linuxgpio programmer on the same pins
+# instead.
 
 . ${YUN_SHARE:-/usr/share/yun}/gpio.sh
 
@@ -49,10 +54,19 @@ done
 MCU=$(echo "${MCU:-m32u4}" | tr 'A-Z' 'a-z')
 [ "$MCU" = atmega32u4 ] && MCU=m32u4
 
-AVRDUDE="${AVRDUDE_BIN:-avrdude} -C +/etc/avrdude-yun.conf -c yun -P gpiochip0 -p $MCU"
-
-yun_oe_spi 1 || exit 1
-trap 'yun_oe_spi 0' EXIT INT TERM
+if [ "${YUN_ISP:-spi}" = gpio ]; then
+	AVRDUDE="${AVRDUDE_BIN:-avrdude} -C +/etc/avrdude-yun.conf -c yun -P gpiochip0 -p $MCU"
+	yun_oe_spi 1 || exit 1
+	yun_isp_release || exit 1
+	trap 'yun_oe_spi 0; yun_isp_take_back' EXIT INT TERM
+else
+	# spi-gpio can't do "no chip select", which linuxspi asks for by default;
+	# the bus has no chip select anyway.
+	SPIDEV=$(yun_isp_spidev) || exit 1
+	AVRDUDE="${AVRDUDE_BIN:-avrdude} -C +/etc/avrdude-yun.conf -c yun-spi -P $SPIDEV:$DEV_DIR/gpiochip0 -x disable_no_cs -p $MCU"
+	yun_oe_spi 1 || exit 1
+	trap 'yun_oe_spi 0' EXIT INT TERM
+fi
 
 FUSES=
 if [ "$MCU" = m32u4 ]; then

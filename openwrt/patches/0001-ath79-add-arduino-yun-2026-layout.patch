@@ -12,10 +12,10 @@ index 95373e5..e14b911 100644
  asus,zenwifi-cd6n|\
 diff --git a/target/linux/ath79/dts/ar9331_arduino_yun-2026.dts b/target/linux/ath79/dts/ar9331_arduino_yun-2026.dts
 new file mode 100644
-index 0000000..c27c332
+index 0000000..d8a5cc1
 --- /dev/null
 +++ b/target/linux/ath79/dts/ar9331_arduino_yun-2026.dts
-@@ -0,0 +1,265 @@
+@@ -0,0 +1,286 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
 +
 +#include "ar9331.dtsi"
@@ -71,19 +71,36 @@ index 0000000..c27c332
 +				};
 +			};
 +
-+			pinmux_bootstrap: pinmux@180600ac {
-+				compatible = "pinctrl-single";
-+				reg = <0x180600ac 0x4>;
++		};
++	};
 +
-+				pinctrl-single,bit-per-mux;
-+				pinctrl-single,register-width = <32>;
-+				pinctrl-single,function-mask = <0x1>;
-+				#pinctrl-cells = <2>;
++	aliases {
++		spi1 = &isp_spi;
++	};
 +
-+				enable_gpio26_gpio27: pinmux_enable_gpio26_gpio27 {
-+					pinctrl-single,bits = <0x0 0x40000 0x40000>;
-+				};
-+			};
++	/*
++	 * The 32U4's ISP pins as a bit-banged SPI bus, like the stock firmware's
++	 * "spi-gpio-custom bus0=1,11,27,8,0,125000": SCK 11, MOSI 27, MISO 8, no
++	 * chip select, 125 kHz, bus 1. avrdude's linuxspi programmer uses it as
++	 * /dev/spidev1.0 (run-avrdude binds spidev to it), and resets the 32U4
++	 * with GPIO 18. The SPI level shifter (yun:oe:spi) only connects it to
++	 * the 32U4 while flashing.
++	 */
++	isp_spi: spi-isp {
++		compatible = "spi-gpio";
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		sck-gpios = <&gpio 11 GPIO_ACTIVE_HIGH>;
++		mosi-gpios = <&gpio 27 GPIO_ACTIVE_HIGH>;
++		miso-gpios = <&gpio 8 GPIO_ACTIVE_HIGH>;
++		cs-gpios = <0>;
++		num-chipselects = <1>;
++
++		isp@0 {
++			compatible = "arduino,yun-isp";
++			reg = <0>;
++			spi-max-frequency = <125000>;
 +		};
 +	};
 +
@@ -149,7 +166,16 @@ index 0000000..c27c332
 +
 +&pinmux {
 +	pinctrl-names = "default";
-+	pinctrl-0 = <&jtag_disable_pins &switch_led_disable_pins>;
++	pinctrl-0 = <&jtag_disable_pins &switch_led_disable_pins &i2s_mck_en_pins>;
++
++	/*
++	 * The stock Linino kernel set I2S_MCK_EN (GPIO_FUNCTION_1 bit 27) along
++	 * with JTAG_DISABLE "to have GPIO functionality active" on GPIO 6-8 and
++	 * 11, which carry the 32U4's ISP MISO (8) and SCK (11).
++	 */
++	i2s_mck_en_pins: pinmux_i2s_mck_en_pins {
++		pinctrl-single,bits = <0x0 0x08000000 0x08000000>;
++	};
 +};
 +
 +&switch_led_disable_pins {
@@ -159,11 +185,6 @@ index 0000000..c27c332
 +&pinmux_extended {
 +	pinctrl-names = "default";
 +	pinctrl-0 = <&enable_gpio11>;
-+};
-+
-+&pinmux_bootstrap {
-+	pinctrl-names = "default";
-+	pinctrl-0 = <&enable_gpio26_gpio27>;
 +};
 +
 +&usb {

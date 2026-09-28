@@ -13,7 +13,7 @@ define Package/yun-base
   SECTION:=arduino
   CATEGORY:=Arduino
   TITLE:=Arduino Yun board support
-  DEPENDS:=+avrdude +umdns
+  DEPENDS:=+avrdude +umdns +kmod-spi-dev
   PKGARCH:=all
 endef
 
