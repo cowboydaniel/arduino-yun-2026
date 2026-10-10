@@ -43,7 +43,7 @@ The stock firmware's SSH server is old. Recent OpenSSH clients need `-o KexAlgor
 
 ## Updating
 
-On Yún 2026, `yun-update check` looks for a newer release, and `yun-update apply` downloads, verifies and installs it, keeping your settings. The web panel's **Settings → Firmware** does the same, and shows the download's progress and when the Yún is back on the new version. Packages you added with `apk` aren't kept across an update.
+On Yún 2026, `yun-update check` looks for a newer release, and `yun-update apply` downloads, verifies and installs it, keeping your settings. The web panel's **Settings → Firmware** does the same, and shows the download's progress and when the Yún is back on the new version. Packages you added with `apk` aren't kept across an update - yet
 
 ## Layout
 
